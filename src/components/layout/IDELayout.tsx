@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { MessageSquare, X } from 'lucide-react'
+import { MessageSquare, X, FolderOpen } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
+import { FileTree } from '../ide/FileTree'
+import { LocalFSAdapter } from '../../lib/filesystem/local-fs-adapter'
 import { boot } from '../../lib/webcontainer'
 import { useEffect } from 'react'
 
@@ -11,10 +13,37 @@ interface IDELayoutProps {
 
 export function IDELayout({ projectId }: IDELayoutProps) {
     const [isChatVisible, setIsChatVisible] = useState(true)
+    const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null)
+    const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>()
+    const [isOpeningFolder, setIsOpeningFolder] = useState(false)
 
     useEffect(() => {
         // Start booting WebContainer as soon as IDE layout mounts
         boot().catch(console.error);
+    }, []);
+
+    const handleOpenFolder = useCallback(async () => {
+        if (!LocalFSAdapter.isSupported()) {
+            alert('File System Access API is not supported in this browser.');
+            return;
+        }
+
+        setIsOpeningFolder(true);
+        try {
+            const adapter = new LocalFSAdapter();
+            const handle = await adapter.requestDirectoryAccess();
+            setDirectoryHandle(handle);
+        } catch (error) {
+            console.error('Failed to open folder:', error);
+        } finally {
+            setIsOpeningFolder(false);
+        }
+    }, []);
+
+    const handleFileSelect = useCallback((path: string, handle: FileSystemFileHandle) => {
+        setSelectedFilePath(path);
+        console.log('File selected:', path, handle);
+        // TODO: Open file in Monaco editor
     }, []);
 
     return (
@@ -27,6 +56,15 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                     <span className="font-medium text-slate-300">{projectId}</span>
                 </div>
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={handleOpenFolder}
+                        disabled={isOpeningFolder}
+                        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                        title="Open Folder"
+                    >
+                        <FolderOpen className="w-4 h-4" />
+                        {isOpeningFolder ? 'Opening...' : 'Open Folder'}
+                    </button>
                     <button
                         onClick={() => setIsChatVisible(!isChatVisible)}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
@@ -52,8 +90,12 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                         <div className="h-9 px-4 flex items-center text-xs font-semibold text-slate-400 tracking-wider uppercase border-b border-slate-800/50">
                             Explorer
                         </div>
-                        <div className="flex-1 p-4 text-sm text-slate-500 italic">
-                            File Tree Placeholder
+                        <div className="flex-1 min-h-0">
+                            <FileTree
+                                directoryHandle={directoryHandle}
+                                selectedPath={selectedFilePath}
+                                onFileSelect={handleFileSelect}
+                            />
                         </div>
                     </div>
                 </Panel>

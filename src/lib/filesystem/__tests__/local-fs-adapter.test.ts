@@ -232,9 +232,24 @@ describe('LocalFSAdapter', () => {
     });
 
     it('should list directory contents successfully', async () => {
+      const fileHandle = {
+        kind: 'file' as const,
+        name: 'file1.txt',
+        getFile: vi.fn(),
+        createWritable: vi.fn(),
+      };
+      const dirHandle = {
+        kind: 'directory' as const,
+        name: 'dir1',
+        getFileHandle: vi.fn(),
+        getDirectoryHandle: vi.fn(),
+        removeEntry: vi.fn(),
+        entries: vi.fn(),
+      };
+
       const mockEntries = [
-        ['file1.txt', mockFileHandle],
-        ['dir1', mockDirectoryHandle],
+        ['file1.txt', fileHandle],
+        ['dir1', dirHandle],
       ];
 
       mockDirectoryHandle.entries.mockReturnValue(mockEntries as any);
@@ -242,16 +257,13 @@ describe('LocalFSAdapter', () => {
       const result = await adapter.listDirectory();
 
       expect(result).toHaveLength(2);
-      expect(result[0]).toEqual({
-        name: 'file1.txt',
-        type: 'file',
-        handle: mockFileHandle,
-      });
-      expect(result[1]).toEqual({
-        name: 'dir1',
-        type: 'directory',
-        handle: mockDirectoryHandle,
-      });
+      // Alphabetically, 'dir1' comes before 'file1.txt' (d < f)
+      expect(result[0].name).toBe('dir1');
+      expect(result[0].type).toBe('directory');
+      expect(result[0].handle).toBe(dirHandle);
+      expect(result[1].name).toBe('file1.txt');
+      expect(result[1].type).toBe('file');
+      expect(result[1].handle).toBe(fileHandle);
     });
 
     it('should sort entries alphabetically', async () => {
@@ -325,6 +337,8 @@ describe('LocalFSAdapter', () => {
     beforeEach(async () => {
       mockShowDirectoryPicker.mockResolvedValue(mockDirectoryHandle);
       await adapter.requestDirectoryAccess();
+      // Set up mock to resolve successfully
+      mockDirectoryHandle.removeEntry.mockResolvedValue(undefined);
     });
 
     it('should delete directory successfully', async () => {
@@ -369,7 +383,26 @@ describe('LocalFSAdapter', () => {
         entries: vi.fn().mockReturnValue([]),
       };
 
-      mockDirectoryHandle.getDirectoryHandle.mockResolvedValue(subDirHandle);
+      const newDirHandle = {
+        kind: 'directory' as const,
+        name: 'newdir',
+        entries: vi.fn().mockReturnValue([]),
+      };
+
+      const getFileHandleMock = vi.fn().mockRejectedValue(new Error('Not a file'));
+      const getDirectoryHandleMock = vi.fn().mockImplementation((path: string, options?: any) => {
+        if (path === 'olddir') {
+          return Promise.resolve(subDirHandle);
+        }
+        if (path === 'newdir' && options?.create) {
+          return Promise.resolve(newDirHandle);
+        }
+        throw new Error(`Unexpected call to getDirectoryHandle: ${path}`);
+      });
+
+      mockDirectoryHandle.getFileHandle = getFileHandleMock;
+      mockDirectoryHandle.getDirectoryHandle = getDirectoryHandleMock;
+
       mockDirectoryHandle.removeEntry.mockResolvedValue(undefined);
 
       await adapter.rename('olddir', 'newdir');
