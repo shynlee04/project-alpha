@@ -41,3 +41,32 @@ export type {
 } from './types';
 
 export { WebContainerError } from './types';
+
+// Terminal Adapter
+export {
+    createTerminalAdapter,
+    TerminalAdapterError,
+} from './terminal-adapter';
+export type {
+    TerminalAdapterOptions,
+    TerminalAdapter,
+} from './terminal-adapter';
+
+// Process Manager
+export {
+    runProcess,
+    killProcess,
+    killAllProcesses,
+    getProcess,
+    getActiveProcesses,
+    getAllProcesses,
+    clearCompletedProcesses,
+    isProcessRunning,
+    ProcessManagerError,
+} from './process-manager';
+export type {
+    ProcessInfo,
+    ProcessStatus,
+    RunProcessOptions,
+} from './process-manager';
+

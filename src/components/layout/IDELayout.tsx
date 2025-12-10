@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { MessageSquare, X } from 'lucide-react'
+import { XTerminal } from '../ide/XTerminal'
+import { boot } from '../../lib/webcontainer'
+import { useEffect } from 'react'
 
 interface IDELayoutProps {
     projectId: string
@@ -8,6 +11,11 @@ interface IDELayoutProps {
 
 export function IDELayout({ projectId }: IDELayoutProps) {
     const [isChatVisible, setIsChatVisible] = useState(true)
+
+    useEffect(() => {
+        // Start booting WebContainer as soon as IDE layout mounts
+        boot().catch(console.error);
+    }, []);
 
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 overflow-hidden flex flex-col">
@@ -104,8 +112,8 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                                     <span className="text-xs font-medium text-slate-500 hover:text-slate-300 cursor-pointer h-full flex items-center">Output</span>
                                     <span className="text-xs font-medium text-slate-500 hover:text-slate-300 cursor-pointer h-full flex items-center">Problems</span>
                                 </div>
-                                <div className="flex-1 p-4 font-mono text-sm text-slate-400">
-                                    <span className="text-green-500">➜</span> <span className="text-cyan-400">~/project</span> echo "WebContainers Terminal Ready"
+                                <div className="flex-1 bg-slate-950 min-h-0 relative">
+                                    <XTerminal />
                                 </div>
                             </div>
                         </Panel>
