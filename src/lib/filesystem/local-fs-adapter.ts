@@ -129,6 +129,23 @@ export class LocalFSAdapter {
     // Normalize path separators for analysis
     const normalized = path.replace(/\\/g, '/');
 
+    // Check for absolute paths BEFORE splitting
+    // Unix absolute path starts with '/'
+    if (normalized.startsWith('/')) {
+      throw new FileSystemError(
+        `Invalid path for ${operation}. Use relative paths, not absolute paths.`,
+        'ABSOLUTE_PATH'
+      );
+    }
+
+    // Windows absolute path like 'C:\' or 'C:/'
+    if (normalized.length > 1 && normalized[1] === ':') {
+      throw new FileSystemError(
+        `Invalid path for ${operation}. Use relative paths, not absolute paths.`,
+        'ABSOLUTE_PATH'
+      );
+    }
+
     // Split into segments to check for path traversal
     const segments = normalized.split('/').filter(s => s.length > 0);
 
@@ -145,25 +162,43 @@ export class LocalFSAdapter {
           'PATH_TRAVERSAL'
         );
       }
-
-      // Check for absolute path indicators
-      if (i === 0 && (segment.startsWith('/') || (segment.length > 1 && segment[1] === ':'))) {
-        throw new FileSystemError(
-          `Invalid path for ${operation}. Use relative paths, not absolute paths.`,
-          'ABSOLUTE_PATH'
-        );
-      }
     }
   }
 
   /**
    * Request directory access from the user
    *
-   * @returns Promise that resolves to a FileSystemDirectoryHandle
-   * @throws {FileSystemError} if API not supported
-   * @throws {PermissionDeniedError} if user denies access
-   * @throws {AbortError} if user cancels the picker
-   * @throws {FileSystemError} for other errors
+   * Opens a browser directory picker dialog for the user to select a directory.
+   * The user must grant permission before file operations can be performed.
+   * This method should be called before any read/write operations.
+   *
+   * @returns Promise resolving to a FileSystemDirectoryHandle for the selected directory
+   * @throws {FileSystemError} API_NOT_SUPPORTED if browser doesn't support File System Access API
+   * @throws {PermissionDeniedError} if user denies directory access or cancels picker
+   * @throws {FileSystemError} DIRECTORY_ACCESS_FAILED for unexpected errors
+   *
+   * @example
+   * const adapter = new LocalFSAdapter();
+   * try {
+   *   const handle = await adapter.requestDirectoryAccess();
+   *   console.log('Directory granted:', handle.name);
+   *   // Now you can perform file operations
+   *   const content = await adapter.readFile('example.txt');
+   * } catch (error) {
+   *   if (error instanceof PermissionDeniedError) {
+   *     console.log('User denied access');
+   *   } else if (error.code === 'API_NOT_SUPPORTED') {
+   *     console.log('Browser not supported');
+   *   }
+   * }
+   *
+   * @example
+   * // Check support before requesting
+   * if (LocalFSAdapter.isSupported()) {
+   *   await adapter.requestDirectoryAccess();
+   * } else {
+   *   console.log('Use Chrome 86+, Edge 86+, or Safari 15.2+');
+   * }
    */
   async requestDirectoryAccess(): Promise<FileSystemDirectoryHandle> {
     // Check if API is supported
@@ -211,11 +246,30 @@ export class LocalFSAdapter {
   /**
    * Read a file from the directory
    *
-   * @param path - Relative path to the file within the directory
+   * @param path - Relative path to the file within the granted directory (e.g., 'readme.txt', 'src/components/Button.tsx')
    * @param options - Options for reading the file
-   * @param options.encoding - 'utf-8' for text files, 'binary' for binary files
-   * @returns Promise that resolves to file content
-   * @throws {FileSystemError} if file doesn't exist or can't be read
+   * @param options.encoding - 'utf-8' for text files (default), 'binary' for binary files
+   * @returns Promise resolving to file content
+   * @throws {FileSystemError} FILE_NOT_FOUND if file doesn't exist
+   * @throws {FileSystemError} FILE_READ_FAILED if file can't be read
+   * @throws {FileSystemError} PATH_TRAVERSAL if path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if path is absolute (starts with '/' or 'C:\')
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Read text file (default)
+   * const text = await adapter.readFile('readme.txt');
+   * console.log(text.content); // string
+   *
+   * @example
+   * // Read binary file
+   * const image = await adapter.readFile('photo.png', { encoding: 'binary' });
+   * console.log(image.data); // ArrayBuffer
+   * console.log(image.mimeType); // "image/png"
+   *
+   * @example
+   * // Read nested file
+   * const config = await adapter.readFile('src/config/app.json');
    */
   async readFile(path: string, options?: { encoding?: 'utf-8' }): Promise<FileReadResult>;
   async readFile(path: string, options: { encoding: 'binary' }): Promise<FileReadBinaryResult>;
@@ -266,10 +320,26 @@ export class LocalFSAdapter {
   /**
    * Write a file to the directory
    *
-   * @param path - Relative path to the file within the directory
-   * @param content - File content as string
-   * @returns Promise that resolves when file is written
-   * @throws {FileSystemError} if file can't be written
+   * @param path - Relative path to the file within the granted directory (e.g., 'output.txt', 'src/components/Button.tsx')
+   * @param content - File content as string (will be encoded as UTF-8)
+   * @returns Promise resolving when file is written
+   * @throws {FileSystemError} FILE_WRITE_FAILED if file can't be written
+   * @throws {FileSystemError} PATH_TRAVERSAL if path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if path is absolute (starts with '/' or 'C:\')
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Write simple file
+   * await adapter.writeFile('readme.txt', 'Hello World');
+   *
+   * @example
+   * // Write nested file (creates directories if needed)
+   * await adapter.writeFile('src/components/Button.tsx', 'export default Button;');
+   *
+   * @example
+   * // Write JSON data
+   * const data = JSON.stringify({ name: 'MyApp', version: '1.0.0' });
+   * await adapter.writeFile('package.json', data);
    */
   async writeFile(path: string, content: string): Promise<void> {
     this.validatePath(path, 'writeFile');
@@ -314,9 +384,24 @@ export class LocalFSAdapter {
   /**
    * Delete a file from the directory
    *
-   * @param path - Relative path to the file within the directory
-   * @returns Promise that resolves when file is deleted
-   * @throws {FileSystemError} if file can't be deleted
+   * Permanently deletes a file from the granted directory.
+   * This operation cannot be undone.
+   *
+   * @param path - Relative path to the file within the granted directory
+   * @returns Promise resolving when file is deleted
+   * @throws {FileSystemError} FILE_NOT_FOUND if file doesn't exist
+   * @throws {FileSystemError} FILE_DELETE_FAILED if file can't be deleted
+   * @throws {FileSystemError} PATH_TRAVERSAL if path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if path is absolute
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Delete a file
+   * await adapter.deleteFile('temp.txt');
+   *
+   * @example
+   * // Delete nested file
+   * await adapter.deleteFile('src/old-component.tsx');
    */
   async deleteFile(path: string): Promise<void> {
     this.validatePath(path, 'deleteFile');
@@ -346,9 +431,36 @@ export class LocalFSAdapter {
   /**
    * List contents of a directory
    *
-   * @param path - Relative path to the directory (defaults to root)
-   * @returns Promise that resolves to array of directory entries
-   * @throws {FileSystemError} if directory doesn't exist or can't be read
+   * Returns an array of DirectoryEntry objects for all files and subdirectories.
+   * Entries are sorted alphabetically by name for consistent results.
+   *
+   * @param path - Relative path to the directory (defaults to root of granted directory)
+   * @returns Promise resolving to array of DirectoryEntry objects (sorted alphabetically)
+   * @throws {FileSystemError} DIR_NOT_FOUND if directory doesn't exist
+   * @throws {FileSystemError} DIR_LIST_FAILED if directory can't be read
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // List root directory
+   * const entries = await adapter.listDirectory();
+   * entries.forEach(entry => {
+   *   console.log(`${entry.type}: ${entry.name}`);
+   * });
+   *
+   * @example
+   * // List subdirectory
+   * const srcFiles = await adapter.listDirectory('src');
+   * srcFiles.forEach(file => {
+   *   if (file.type === 'file') {
+   *     console.log('File:', file.name);
+   *   }
+   * });
+   *
+   * @example
+   * // Filter files by type
+   * const allEntries = await adapter.listDirectory();
+   * const files = allEntries.filter(e => e.type === 'file');
+   * const directories = allEntries.filter(e => e.type === 'directory');
    */
   async listDirectory(path: string = ''): Promise<DirectoryEntry[]> {
     if (path) {
@@ -398,9 +510,27 @@ export class LocalFSAdapter {
   /**
    * Create a new directory
    *
-   * @param path - Relative path to the directory within the directory
-   * @returns Promise that resolves when directory is created
-   * @throws {FileSystemError} if directory can't be created
+   * Creates a new directory or nested directory structure.
+   * Intermediate directories are created automatically if they don't exist.
+   *
+   * @param path - Relative path to the directory within the granted directory (e.g., 'logs', 'src/components')
+   * @returns Promise resolving when directory is created
+   * @throws {FileSystemError} DIR_CREATE_FAILED if directory can't be created
+   * @throws {FileSystemError} PATH_TRAVERSAL if path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if path is absolute
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Create a simple directory
+   * await adapter.createDirectory('output');
+   *
+   * @example
+   * // Create nested directory structure
+   * await adapter.createDirectory('src/components/Button');
+   *
+   * @example
+   * // Create multiple levels at once
+   * await adapter.createDirectory('data/exports/2024');
    */
   async createDirectory(path: string): Promise<void> {
     try {
@@ -417,9 +547,28 @@ export class LocalFSAdapter {
   /**
    * Delete a directory
    *
-   * @param path - Relative path to the directory within the directory
-   * @returns Promise that resolves when directory is deleted
-   * @throws {FileSystemError} if directory can't be deleted
+   * Permanently deletes a directory and all its contents recursively.
+   * This operation cannot be undone. Use with caution.
+   *
+   * @param path - Relative path to the directory within the granted directory
+   * @returns Promise resolving when directory is deleted
+   * @throws {FileSystemError} DIR_NOT_FOUND if directory doesn't exist
+   * @throws {FileSystemError} DIR_DELETE_FAILED if directory can't be deleted
+   * @throws {FileSystemError} PATH_TRAVERSAL if path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if path is absolute
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Delete an empty directory
+   * await adapter.deleteDirectory('temp');
+   *
+   * @example
+   * // Delete directory with all contents
+   * await adapter.deleteDirectory('old-project');
+   *
+   * @example
+   * // Delete nested directory
+   * await adapter.deleteDirectory('src/obsolete-component');
    */
   async deleteDirectory(path: string): Promise<void> {
     if (!this.directoryHandle) {
@@ -447,10 +596,34 @@ export class LocalFSAdapter {
   /**
    * Rename a file or directory
    *
-   * @param oldPath - Current relative path
-   * @param newPath - New relative path
-   * @returns Promise that resolves when renamed
-   * @throws {FileSystemError} if rename fails
+   * Moves a file or directory from oldPath to newPath.
+   * Can be used to move files between directories or rename them.
+   * Works with both files and directories (recursively for directories).
+   *
+   * @param oldPath - Current relative path to the file or directory
+   * @param newPath - New relative path destination
+   * @returns Promise resolving when renamed/moved
+   * @throws {FileSystemError} PATH_NOT_FOUND if source path doesn't exist
+   * @throws {FileSystemError} RENAME_FAILED if rename operation fails
+   * @throws {FileSystemError} PATH_TRAVERSAL if either path contains '..'
+   * @throws {FileSystemError} ABSOLUTE_PATH if either path is absolute
+   * @throws {FileSystemError} NO_DIRECTORY_ACCESS if requestDirectoryAccess() not called
+   *
+   * @example
+   * // Rename a file
+   * await adapter.rename('old-name.txt', 'new-name.txt');
+   *
+   * @example
+   * // Move a file to a subdirectory
+   * await adapter.rename('document.txt', 'documents/document.txt');
+   *
+   * @example
+   * // Rename a directory
+   * await adapter.rename('src', 'source');
+   *
+   * @example
+   * // Move directory with contents
+   * await adapter.rename('components', 'ui/components');
    */
   async rename(oldPath: string, newPath: string): Promise<void> {
     this.validatePath(oldPath, 'rename (old path)');

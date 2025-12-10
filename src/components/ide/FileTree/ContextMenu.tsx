@@ -3,7 +3,7 @@
  * Right-click context menu for file tree operations
  */
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import type { ContextMenuAction, TreeNode } from './types';
 
@@ -26,7 +26,7 @@ export function ContextMenu({
     targetNode,
     onAction,
     onClose,
-}: ContextMenuProps): JSX.Element | null {
+}: ContextMenuProps): React.JSX.Element | null {
     const menuRef = useRef<HTMLDivElement>(null);
 
     // Close on outside click

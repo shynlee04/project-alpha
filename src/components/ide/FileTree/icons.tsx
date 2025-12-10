@@ -3,6 +3,7 @@
  * Maps file extensions to icon types and provides icon components
  */
 
+import React from 'react';
 import {
     File,
     FileCode,
@@ -161,7 +162,7 @@ export function FileIcon({
     isExpanded = false,
     className = '',
     size = 16
-}: FileIconProps): JSX.Element {
+}: FileIconProps): React.JSX.Element {
     const iconType = getFileIconType(filename, isDirectory, isExpanded);
     const IconComponent = getIconComponent(iconType);
     const colorClass = getIconColor(iconType);

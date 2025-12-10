@@ -3,7 +3,8 @@
  * Type definitions for the FileTree component and related utilities
  */
 
-import type { FileSystemHandle, FileSystemDirectoryHandle, FileSystemFileHandle } from '../../lib/filesystem/local-fs-adapter';
+// Note: FileSystemHandle, FileSystemDirectoryHandle, FileSystemFileHandle
+// are built-in browser types from TypeScript DOM lib (ES2022+)
 
 /**
  * Represents a node in the file tree

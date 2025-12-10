@@ -3,6 +3,7 @@
  * Renders a single item in the file tree (file or folder)
  */
 
+import React from 'react';
 import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
 import { FileIcon } from './icons';
 import type { FileTreeItemProps } from './types';
@@ -18,7 +19,7 @@ export function FileTreeItem({
     onSelect,
     onToggle,
     onContextMenu,
-}: FileTreeItemProps): JSX.Element {
+}: FileTreeItemProps): React.JSX.Element {
     const isSelected = selectedPath === node.path;
     const isFocused = focusedPath === node.path;
     const isDirectory = node.type === 'directory';
@@ -125,7 +126,7 @@ export function FileTreeItemList({
     onSelect,
     onToggle,
     onContextMenu,
-}: FileTreeItemListProps): JSX.Element {
+}: FileTreeItemListProps): React.JSX.Element {
     // Sort: folders first, then files, both alphabetically
     const sortedNodes = [...nodes].sort((a, b) => {
         if (a.type !== b.type) {

@@ -11,7 +11,7 @@
  * - Selection state
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { LocalFSAdapter, FileSystemError, PermissionDeniedError, type DirectoryEntry } from '../../../lib/filesystem/local-fs-adapter';
 import { FileTreeItemList } from './FileTreeItem';
 import { ContextMenu } from './ContextMenu';
@@ -42,7 +42,7 @@ export function FileTree({
     onFileSelect,
     selectedPath,
     className = '',
-}: FileTreeProps): JSX.Element {
+}: FileTreeProps): React.JSX.Element {
     const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
     const [focusedPath, setFocusedPath] = useState<string | undefined>();
     const [error, setError] = useState<string | null>(null);
