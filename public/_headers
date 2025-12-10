@@ -1,0 +1,8 @@
+# Netlify Headers Configuration
+# Cross-Origin Isolation for WebContainers
+# Required for SharedArrayBuffer support
+# @see https://webcontainers.io/guides/configuring-headers
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
