@@ -209,14 +209,6 @@ export class LocalFSAdapter {
   }
 
   /**
-   * Result of a binary file read operation
-   */
-  interface FileReadBinaryResult {
-    data: ArrayBuffer;
-    mimeType?: string;
-  }
-
-  /**
    * Read a file from the directory
    *
    * @param path - Relative path to the file within the directory

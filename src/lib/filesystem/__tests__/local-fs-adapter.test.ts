@@ -122,7 +122,7 @@ describe('LocalFSAdapter', () => {
 
       expect(result.content).toBe(fileContent);
       expect(result.encoding).toBe('utf-8');
-      expect(mockDirectoryHandle.getFileHandle).toHaveBeenCalledWith('test.txt');
+      expect(mockDirectoryHandle.getFileHandle).toHaveBeenCalledWith('test.txt', { create: false });
     });
 
     it('should throw FileSystemError when no directory access', async () => {
