@@ -1,9 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { MessageSquare, X, FolderOpen } from 'lucide-react'
+import { MessageSquare, X, FolderOpen, Loader2 } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
-import { LocalFSAdapter } from '../../lib/filesystem/local-fs-adapter'
+import { LocalFSAdapter, SyncManager, type SyncProgress, type SyncResult } from '../../lib/filesystem'
 import { boot } from '../../lib/webcontainer'
 import { useEffect } from 'react'
 
@@ -16,6 +16,12 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null)
     const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>()
     const [isOpeningFolder, setIsOpeningFolder] = useState(false)
+    const [isSyncing, setIsSyncing] = useState(false)
+    const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
+    const [syncError, setSyncError] = useState<string | null>(null)
+
+    // Keep a reference to the SyncManager for dual writes
+    const syncManagerRef = useRef<SyncManager | null>(null)
 
     useEffect(() => {
         // Start booting WebContainer as soon as IDE layout mounts
@@ -29,14 +35,45 @@ export function IDELayout({ projectId }: IDELayoutProps) {
         }
 
         setIsOpeningFolder(true);
+        setSyncError(null);
+
         try {
+            // Step 1: Request directory access
             const adapter = new LocalFSAdapter();
             const handle = await adapter.requestDirectoryAccess();
             setDirectoryHandle(handle);
+
+            // Step 2: Create SyncManager and sync to WebContainers
+            setIsSyncing(true);
+            const syncManager = new SyncManager(adapter, {
+                onProgress: (progress) => {
+                    setSyncProgress(progress);
+                },
+                onError: (error) => {
+                    console.warn('[IDE] Sync error:', error.message, error.filePath);
+                    // Individual file errors don't stop the sync
+                },
+                onComplete: (result: SyncResult) => {
+                    console.log('[IDE] Sync complete:', result);
+                    if (result.failedFiles.length > 0) {
+                        setSyncError(`Synced with ${result.failedFiles.length} failed files`);
+                    }
+                },
+            });
+
+            // Store reference for dual writes
+            syncManagerRef.current = syncManager;
+
+            // Perform initial sync
+            await syncManager.syncToWebContainer();
+
         } catch (error) {
             console.error('Failed to open folder:', error);
+            setSyncError(error instanceof Error ? error.message : 'Failed to open folder');
         } finally {
             setIsOpeningFolder(false);
+            setIsSyncing(false);
+            setSyncProgress(null);
         }
     }, []);
 
@@ -58,13 +95,26 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                 <div className="flex items-center gap-4">
                     <button
                         onClick={handleOpenFolder}
-                        disabled={isOpeningFolder}
+                        disabled={isOpeningFolder || isSyncing}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
                         title="Open Folder"
                     >
-                        <FolderOpen className="w-4 h-4" />
-                        {isOpeningFolder ? 'Opening...' : 'Open Folder'}
+                        {isSyncing ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <FolderOpen className="w-4 h-4" />
+                        )}
+                        {isOpeningFolder
+                            ? 'Opening...'
+                            : isSyncing
+                                ? `Syncing${syncProgress ? ` (${syncProgress.syncedFiles} files)` : '...'}`
+                                : 'Open Folder'}
                     </button>
+                    {syncError && (
+                        <span className="text-xs text-amber-400" title={syncError}>
+                            ⚠️ {syncError.length > 25 ? syncError.slice(0, 25) + '...' : syncError}
+                        </span>
+                    )}
                     <button
                         onClick={() => setIsChatVisible(!isChatVisible)}
                         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"

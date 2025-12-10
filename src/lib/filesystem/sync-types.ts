@@ -1,0 +1,186 @@
+/**
+ * Sync Manager Types
+ * @module lib/filesystem/sync-types
+ * 
+ * Type definitions for the SyncManager that keeps Local FS and WebContainers in sync.
+ * 
+ * @see {@link ../sync-manager.ts} for the main SyncManager implementation
+ */
+
+/**
+ * Status of the sync operation
+ */
+export type SyncStatus = 'idle' | 'syncing' | 'error';
+
+/**
+ * Error codes for sync operations
+ */
+export type SyncErrorCode =
+    | 'PERMISSION_DENIED'
+    | 'FILE_NOT_FOUND'
+    | 'FILE_READ_FAILED'
+    | 'FILE_WRITE_FAILED'
+    | 'DISK_FULL'
+    | 'WEBCONTAINER_ERROR'
+    | 'WEBCONTAINER_NOT_BOOTED'
+    | 'ENCODING_ERROR'
+    | 'SYNC_FAILED'
+    | 'UNKNOWN';
+
+/**
+ * Error class for sync operations
+ * 
+ * @example
+ * ```ts
+ * throw new SyncError(
+ *   'Failed to read file',
+ *   'FILE_READ_FAILED',
+ *   'src/index.ts',
+ *   originalError
+ * );
+ * ```
+ */
+export class SyncError extends Error {
+    constructor(
+        message: string,
+        public readonly code: SyncErrorCode,
+        public readonly filePath?: string,
+        public readonly cause?: unknown
+    ) {
+        super(message);
+        this.name = 'SyncError';
+    }
+}
+
+/**
+ * Configuration options for SyncManager
+ */
+export interface SyncConfig {
+    /**
+     * Patterns to exclude from sync (e.g., '.git', 'node_modules', '*.log')
+     * Supports simple glob patterns with '*' wildcard
+     * @default ['.git', 'node_modules', '.DS_Store']
+     */
+    excludePatterns: string[];
+
+    /**
+     * Callback for progress updates during sync
+     */
+    onProgress?: (progress: SyncProgress) => void;
+
+    /**
+     * Callback for individual file errors during sync
+     * Note: Partial failures don't stop the entire sync
+     */
+    onError?: (error: SyncError) => void;
+
+    /**
+     * Callback when sync completes (success or failure)
+     */
+    onComplete?: (result: SyncResult) => void;
+}
+
+/**
+ * Progress information during sync operation
+ */
+export interface SyncProgress {
+    /**
+     * Total number of files/directories processed so far
+     * Note: Total is not known upfront due to lazy traversal
+     */
+    totalFiles: number;
+
+    /**
+     * Number of files successfully synced
+     */
+    syncedFiles: number;
+
+    /**
+     * Current file being processed
+     */
+    currentFile: string;
+
+    /**
+     * Percentage complete (0-100)
+     * Note: May not be accurate due to lazy traversal
+     */
+    percentage: number;
+}
+
+/**
+ * Result of a sync operation
+ */
+export interface SyncResult {
+    /**
+     * Whether the sync completed without critical errors
+     */
+    success: boolean;
+
+    /**
+     * Total number of files/directories encountered
+     */
+    totalFiles: number;
+
+    /**
+     * Number of files successfully synced
+     */
+    syncedFiles: number;
+
+    /**
+     * List of file paths that failed to sync
+     */
+    failedFiles: string[];
+
+    /**
+     * Total duration of sync operation in milliseconds
+     */
+    duration: number;
+}
+
+/**
+ * Default configuration for SyncManager
+ */
+export const DEFAULT_SYNC_CONFIG: SyncConfig = {
+    excludePatterns: [
+        '.git',
+        'node_modules',
+        '.DS_Store',
+        'Thumbs.db',
+        '*.swp',
+        '*.swo',
+        '.env.local',
+        '.env.*.local',
+    ],
+};
+
+/**
+ * Binary file extensions that should be read as ArrayBuffer
+ */
+export const BINARY_EXTENSIONS = [
+    // Images
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.ico',
+    '.svg',
+    '.webp',
+    '.bmp',
+    '.tiff',
+    // Fonts
+    '.woff',
+    '.woff2',
+    '.ttf',
+    '.otf',
+    '.eot',
+    // Other binary
+    '.pdf',
+    '.zip',
+    '.tar',
+    '.gz',
+    '.mp3',
+    '.mp4',
+    '.wav',
+    '.avi',
+    '.mov',
+];
