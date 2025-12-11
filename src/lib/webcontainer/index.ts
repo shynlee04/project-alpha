@@ -29,6 +29,7 @@ export {
     getFileSystem,
     getInstance,
     isBooted,
+    onServerReady,
 } from './manager';
 
 // Types

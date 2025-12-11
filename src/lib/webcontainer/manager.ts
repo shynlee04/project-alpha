@@ -227,3 +227,36 @@ export function getInstance(): WebContainer | null {
 export function isBooted(): boolean {
     return instance !== null;
 }
+
+/**
+ * Subscribe to server-ready events.
+ * Fired when a server starts listening on a port in WebContainers.
+ * 
+ * @param callback - Function called with port and URL when server is ready
+ * @returns Unsubscribe function
+ * @throws {WebContainerError} If WebContainer is not booted
+ * 
+ * @example
+ * ```ts
+ * const unsubscribe = onServerReady((port, url) => {
+ *   console.log(`Server ready at ${url}`);
+ *   iframeEl.src = url;
+ * });
+ * 
+ * // Cleanup
+ * unsubscribe();
+ * ```
+ */
+export function onServerReady(
+    callback: (port: number, url: string) => void
+): () => void {
+    if (!instance) {
+        throw new WebContainerError(
+            'WebContainer not booted. Call boot() first.',
+            'NOT_BOOTED'
+        );
+    }
+
+    console.log('[WebContainer] Subscribing to server-ready events');
+    return instance.on('server-ready', callback);
+}

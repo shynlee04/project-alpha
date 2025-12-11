@@ -4,6 +4,7 @@ import { MessageSquare, X, FolderOpen, Loader2 } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
 import { MonacoEditor, type OpenFile } from '../ide/MonacoEditor'
+import { PreviewPanel } from '../ide/PreviewPanel'
 import { LocalFSAdapter, SyncManager, type SyncProgress, type SyncResult } from '../../lib/filesystem'
 import {
     saveDirectoryHandleReference,
@@ -12,7 +13,7 @@ import {
     ensureReadWritePermission,
     type FsaPermissionState,
 } from '../../lib/filesystem/permission-lifecycle'
-import { boot } from '../../lib/webcontainer'
+import { boot, onServerReady, isBooted } from '../../lib/webcontainer'
 import { useEffect } from 'react'
 import { useToast } from '../ui/Toast'
 
@@ -38,6 +39,10 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     // FileTree refresh key (increment to trigger refresh)
     const [fileTreeRefreshKey, setFileTreeRefreshKey] = useState(0)
 
+    // Preview panel state
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+    const [previewPort, setPreviewPort] = useState<number | null>(null)
+
     // Keep a reference to the LocalFSAdapter for reading files
     const localAdapterRef = useRef<LocalFSAdapter | null>(null)
 
@@ -46,7 +51,19 @@ export function IDELayout({ projectId }: IDELayoutProps) {
 
     useEffect(() => {
         // Start booting WebContainer as soon as IDE layout mounts
-        boot().catch(console.error);
+        boot()
+            .then(() => {
+                // Subscribe to server-ready event for preview panel
+                if (isBooted()) {
+                    const unsubscribe = onServerReady((port, url) => {
+                        console.log(`[IDE] Server ready on port ${port}: ${url}`);
+                        setPreviewUrl(url);
+                        setPreviewPort(port);
+                    });
+                    return unsubscribe;
+                }
+            })
+            .catch(console.error);
 
         // Attempt to restore previously granted directory handle (Story 3.4)
         if (!LocalFSAdapter.isSupported()) {
@@ -357,14 +374,10 @@ export function IDELayout({ projectId }: IDELayoutProps) {
 
                                 {/* Preview */}
                                 <Panel defaultSize={40} minSize={15} className="bg-slate-900/30">
-                                    <div className="h-full flex flex-col border-l border-slate-800">
-                                        <div className="h-9 px-4 flex items-center justify-between border-b border-slate-800/50">
-                                            <span className="text-xs font-semibold text-slate-400 tracking-wider uppercase">Preview</span>
-                                        </div>
-                                        <div className="flex-1 flex items-center justify-center text-sm text-slate-500 italic">
-                                            Preview Iframe Placeholder
-                                        </div>
-                                    </div>
+                                    <PreviewPanel
+                                        previewUrl={previewUrl}
+                                        port={previewPort}
+                                    />
                                 </Panel>
                             </PanelGroup>
                         </Panel>
