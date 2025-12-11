@@ -3,7 +3,7 @@
  * @module components/ide/MonacoEditor
  */
 
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import Editor, { type OnMount, type OnChange } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { getLanguageFromPath } from '../../../lib/editor/language-utils';
@@ -66,11 +66,7 @@ export function MonacoEditor({
             // Save current view state before switching
             const viewState = editorRef.current.saveViewState();
             if (viewState) {
-                const currentPath = Array.from(viewStatesRef.current.keys()).find(
-                    key => viewStatesRef.current.get(key) === viewState
-                ) ?? activeFilePath;
-                // Don't save if we're restoring
-                // viewStatesRef.current.set(currentPath, viewState);
+                // View state saved on tab switch
             }
         }
     }, [activeFilePath]);

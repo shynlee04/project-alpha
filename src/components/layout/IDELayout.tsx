@@ -3,6 +3,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { MessageSquare, X, FolderOpen, Loader2 } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
+import { MonacoEditor, type OpenFile } from '../ide/MonacoEditor'
 import { LocalFSAdapter, SyncManager, type SyncProgress, type SyncResult } from '../../lib/filesystem'
 import {
     saveDirectoryHandleReference,
@@ -27,6 +28,13 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
     const [syncError, setSyncError] = useState<string | null>(null)
     const [permissionState, setPermissionState] = useState<FsaPermissionState>('unknown')
+
+    // Monaco Editor state
+    const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
+    const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
+
+    // Keep a reference to the LocalFSAdapter for reading files
+    const localAdapterRef = useRef<LocalFSAdapter | null>(null)
 
     // Keep a reference to the SyncManager for dual writes
     const syncManagerRef = useRef<SyncManager | null>(null)
@@ -79,6 +87,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                 });
 
                 syncManagerRef.current = syncManager;
+                localAdapterRef.current = adapter;
                 await syncManager.syncToWebContainer();
             } catch (error) {
                 console.warn('[IDE] Failed to restore directory handle:', error);
@@ -154,6 +163,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
 
             // Store reference for dual writes
             syncManagerRef.current = syncManager;
+            localAdapterRef.current = adapter;
 
             // Perform initial sync
             await syncManager.syncToWebContainer();
@@ -168,11 +178,64 @@ export function IDELayout({ projectId }: IDELayoutProps) {
         }
     }, [directoryHandle]);
 
-    const handleFileSelect = useCallback((path: string, handle: FileSystemFileHandle) => {
+    const handleFileSelect = useCallback(async (path: string, handle: FileSystemFileHandle) => {
         setSelectedFilePath(path);
-        console.log('File selected:', path, handle);
-        // TODO: Open file in Monaco editor
+        console.log('[IDE] File selected:', path);
+
+        // Check if file is already open
+        const existingFile = openFiles.find(f => f.path === path);
+        if (existingFile) {
+            setActiveFilePath(path);
+            return;
+        }
+
+        // Read file content
+        try {
+            const file = await handle.getFile();
+            const content = await file.text();
+
+            // Add to open files
+            setOpenFiles(prev => [...prev, { path, content, isDirty: false }]);
+            setActiveFilePath(path);
+        } catch (error) {
+            console.error('[IDE] Failed to read file:', path, error);
+        }
+    }, [openFiles]);
+
+    // Handle file save (called by Monaco auto-save)
+    const handleSave = useCallback(async (path: string, content: string) => {
+        console.log('[IDE] Saving file:', path);
+        try {
+            if (syncManagerRef.current) {
+                await syncManagerRef.current.writeFile(path, content);
+                // Update openFiles to mark as not dirty
+                setOpenFiles(prev =>
+                    prev.map(f => (f.path === path ? { ...f, content, isDirty: false } : f))
+                );
+                console.log('[IDE] File saved successfully:', path);
+            } else {
+                console.warn('[IDE] No SyncManager available for save');
+            }
+        } catch (error) {
+            console.error('[IDE] Failed to save file:', path, error);
+        }
     }, []);
+
+    // Handle content change (update dirty state)
+    const handleContentChange = useCallback((path: string, content: string) => {
+        setOpenFiles(prev =>
+            prev.map(f => (f.path === path ? { ...f, content, isDirty: true } : f))
+        );
+    }, []);
+
+    // Handle tab close
+    const handleTabClose = useCallback((path: string) => {
+        setOpenFiles(prev => prev.filter(f => f.path !== path));
+        // If closing active file, switch to another open file
+        if (activeFilePath === path) {
+            setActiveFilePath(openFiles.find(f => f.path !== path)?.path ?? null);
+        }
+    }, [activeFilePath, openFiles]);
 
     return (
         <div className="h-screen w-screen bg-slate-950 text-slate-200 overflow-hidden flex flex-col">
@@ -269,17 +332,14 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                             <PanelGroup direction="horizontal" autoSaveId="via-gent-ide-editor">
                                 {/* Editor */}
                                 <Panel defaultSize={60} minSize={30} className="bg-slate-950">
-                                    <div className="h-full flex flex-col">
-                                        <div className="h-9 flex items-center bg-slate-900 border-b border-slate-800 px-2 overflow-x-auto">
-                                            <div className="px-3 py-1.5 bg-slate-800 text-slate-300 text-sm rounded-t border-t border-x border-slate-700/50 flex items-center gap-2">
-                                                <span className="w-2 h-2 rounded-full bg-cyan-500/50"></span>
-                                                Welcome.md
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 p-8 flex items-center justify-center text-slate-600">
-                                            Monaco Editor Placeholder
-                                        </div>
-                                    </div>
+                                    <MonacoEditor
+                                        openFiles={openFiles}
+                                        activeFilePath={activeFilePath}
+                                        onSave={handleSave}
+                                        onActiveFileChange={setActiveFilePath}
+                                        onTabClose={handleTabClose}
+                                        onContentChange={handleContentChange}
+                                    />
                                 </Panel>
 
                                 <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500/50 transition-colors cursor-col-resize" />
