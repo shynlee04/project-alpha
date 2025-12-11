@@ -42,6 +42,7 @@ export function FileTree({
     onFileSelect,
     selectedPath,
     className = '',
+    refreshKey,
 }: FileTreeProps): React.JSX.Element {
     const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
     const [focusedPath, setFocusedPath] = useState<string | undefined>();
@@ -115,10 +116,11 @@ export function FileTree({
         }
     }, [directoryHandle, getAdapter]);
 
-    // Effect to load root when directory handle changes
+    // Effect to load root when directory handle changes or refresh is triggered
     useEffect(() => {
         loadRootDirectory();
-    }, [loadRootDirectory]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loadRootDirectory, refreshKey]);
 
     // Toggle folder expand/collapse
     const handleToggle = useCallback(async (node: TreeNode) => {

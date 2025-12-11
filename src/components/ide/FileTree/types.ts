@@ -38,6 +38,8 @@ export interface FileTreeProps {
     selectedPath?: string;
     /** Optional className for styling */
     className?: string;
+    /** Key to trigger refresh (increment to refresh tree) */
+    refreshKey?: number;
 }
 
 /**

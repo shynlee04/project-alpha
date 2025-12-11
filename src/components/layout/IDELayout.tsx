@@ -14,12 +14,14 @@ import {
 } from '../../lib/filesystem/permission-lifecycle'
 import { boot } from '../../lib/webcontainer'
 import { useEffect } from 'react'
+import { useToast } from '../ui/Toast'
 
 interface IDELayoutProps {
     projectId: string
 }
 
 export function IDELayout({ projectId }: IDELayoutProps) {
+    const { toast } = useToast()
     const [isChatVisible, setIsChatVisible] = useState(true)
     const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null)
     const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>()
@@ -32,6 +34,9 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     // Monaco Editor state
     const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
     const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
+
+    // FileTree refresh key (increment to trigger refresh)
+    const [fileTreeRefreshKey, setFileTreeRefreshKey] = useState(0)
 
     // Keep a reference to the LocalFSAdapter for reading files
     const localAdapterRef = useRef<LocalFSAdapter | null>(null)
@@ -213,13 +218,18 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                     prev.map(f => (f.path === path ? { ...f, content, isDirty: false } : f))
                 );
                 console.log('[IDE] File saved successfully:', path);
+                // Trigger FileTree refresh to detect any new files
+                setFileTreeRefreshKey(prev => prev + 1);
             } else {
                 console.warn('[IDE] No SyncManager available for save');
+                toast('No project folder open - save skipped', 'warning');
             }
         } catch (error) {
             console.error('[IDE] Failed to save file:', path, error);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            toast(`Failed to save ${path.split('/').pop()}: ${errorMessage}`, 'error');
         }
-    }, []);
+    }, [toast]);
 
     // Handle content change (update dirty state)
     const handleContentChange = useCallback((path: string, content: string) => {
@@ -317,6 +327,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                                 directoryHandle={permissionState === 'granted' ? directoryHandle : null}
                                 selectedPath={selectedFilePath}
                                 onFileSelect={handleFileSelect}
+                                refreshKey={fileTreeRefreshKey}
                             />
                         </div>
                     </div>

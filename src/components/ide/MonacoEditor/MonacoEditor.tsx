@@ -85,9 +85,28 @@ export function MonacoEditor({
         editorRef.current = editor;
         monacoRef.current = monaco;
 
+        // Add Cmd+S / Ctrl+S keybinding for immediate save
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            // Clear any pending debounce
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+                debounceTimeoutRef.current = null;
+            }
+
+            // Get current file path and content
+            const currentPath = activeFilePath;
+            const currentContent = editor.getValue();
+
+            if (currentPath && currentContent !== undefined && onSave) {
+                console.log('[MonacoEditor] Manual save (Cmd+S):', currentPath);
+                onSave(currentPath, currentContent);
+                pendingChangesRef.current.delete(currentPath);
+            }
+        });
+
         // Focus the editor on mount
         editor.focus();
-    }, []);
+    }, [activeFilePath, onSave]);
 
     const handleEditorChange: OnChange = useCallback((value) => {
         if (!activeFilePath || value === undefined) return;
