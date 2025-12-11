@@ -38,7 +38,6 @@ import { boot, mount, getFileSystem, isBooted } from '../webcontainer';
 import type { FileSystemTree } from '@webcontainer/api';
 import {
     type SyncConfig,
-    type SyncProgress,
     type SyncResult,
     type SyncStatus,
     SyncError,
