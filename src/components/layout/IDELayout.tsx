@@ -13,6 +13,10 @@ import {
     ensureReadWritePermission,
     type FsaPermissionState,
 } from '../../lib/filesystem/permission-lifecycle'
+import {
+    saveProject,
+    updateProjectLastOpened,
+} from '../../lib/workspace'
 import { boot, onServerReady, isBooted } from '../../lib/webcontainer'
 import { useEffect } from 'react'
 import { useToast } from '../ui/Toast'
@@ -88,6 +92,9 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                     return;
                 }
 
+                // Story 3-7: Update lastOpened timestamp for dashboard sorting
+                await updateProjectLastOpened(projectId);
+
                 // Auto-sync when permission is still granted on reload
                 setIsSyncing(true);
                 const adapter = new LocalFSAdapter();
@@ -160,10 +167,21 @@ export function IDELayout({ projectId }: IDELayoutProps) {
             }
 
             setDirectoryHandle(handle);
-            const persisted = await saveDirectoryHandleReference(handle, projectId);
+
+            // Story 3-7: Save to ProjectStore for dashboard integration
+            const persisted = await saveProject({
+                id: projectId,
+                name: handle.name,
+                folderPath: handle.name, // Display path only
+                fsaHandle: handle,
+                lastOpened: new Date(),
+            });
             if (!persisted) {
-                console.warn('[IDE] Failed to persist directory handle; restore-on-reload may be unavailable.');
+                console.warn('[IDE] Failed to persist project metadata');
             }
+
+            // Also save to legacy permission-lifecycle for backward compat
+            await saveDirectoryHandleReference(handle, projectId);
 
             // Step 2: Create SyncManager and sync to WebContainers
             setIsSyncing(true);
