@@ -21,7 +21,7 @@ function Workspace() {
     return (
         <ToastProvider>
             <WorkspaceProvider projectId={projectId} initialProject={project}>
-                <IDELayout projectId={projectId} />
+                <IDELayout />
             </WorkspaceProvider>
             <Toast />
         </ToastProvider>

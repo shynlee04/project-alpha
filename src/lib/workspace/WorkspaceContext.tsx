@@ -301,6 +301,34 @@ export function WorkspaceProvider({
     }, [navigate, performSync]);
 
     // -------------------------------------------------------------------------
+    // Effect: Initial Sync on Mount / Handle Change
+    // -------------------------------------------------------------------------
+    React.useEffect(() => {
+        if (directoryHandle && !syncManagerRef.current && syncStatus === 'idle') {
+            // Check permission before syncing? 
+            // The directoryHandle from DB comes with 'prompt' or 'granted' (if retained).
+            // Browsers often require re-verification or transient activation.
+            // If we blindly sync, it might fail permissions using LocalFSAdapter.
+            // But strict mode might block it.
+            // However, previous implementation tried to restore permission.
+
+            const initSync = async () => {
+                const updatedState = await getPermissionState(directoryHandle, 'readwrite');
+                setPermissionState(updatedState);
+
+                if (updatedState === 'granted') {
+                    await performSync(directoryHandle);
+                } else {
+                    console.log('[Workspace] Permission needed for initial sync');
+                    // We don't auto-prompt here as it requires user gesture usually.
+                    // We just set status so UI shows "Re-authorize"
+                }
+            };
+            initSync();
+        }
+    }, [directoryHandle, performSync, syncStatus]);
+
+    // -------------------------------------------------------------------------
     // Action: syncNow - Trigger manual sync
     // -------------------------------------------------------------------------
     const syncNow = useCallback(async (): Promise<void> => {

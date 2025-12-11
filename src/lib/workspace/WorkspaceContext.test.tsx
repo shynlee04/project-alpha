@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Unit tests for WorkspaceContext
  *
@@ -11,7 +12,10 @@ import { useWorkspace, WorkspaceProvider, type WorkspaceProviderProps } from './
 import type { ProjectMetadata } from './project-store';
 
 // Mock TanStack Router
-const mockNavigate = vi.fn();
+const { mockNavigate } = vi.hoisted(() => ({
+    mockNavigate: vi.fn(),
+}));
+
 vi.mock('@tanstack/react-router', () => ({
     useNavigate: () => mockNavigate,
 }));
@@ -38,10 +42,6 @@ vi.mock('../filesystem/permission-lifecycle', () => ({
     getPermissionState: vi.fn().mockResolvedValue('granted'),
     ensureReadWritePermission: vi.fn().mockResolvedValue(true),
     saveDirectoryHandleReference: vi.fn().mockResolvedValue(undefined),
-}));
-getPermissionState: vi.fn().mockResolvedValue('granted'),
-    ensureReadWritePermission: vi.fn().mockResolvedValue(true),
-        saveDirectoryHandleReference: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Create mock handle
@@ -148,7 +148,42 @@ describe('WorkspaceContext', () => {
 
             expect(result.current.projectMetadata).toEqual(initialProject);
             expect(result.current.directoryHandle).toBe(mockHandle);
-            expect(result.current.permissionState).toBe('prompt'); // Needs verification
+            expect(result.current.permissionState).toBe('prompt'); // Initially prompt until effect runs
+        });
+
+        it('should trigger sync if permission is already granted', async () => {
+            // Mock SyncManager to verify instantiation
+            const { SyncManager } = await import('../filesystem');
+
+            const mockHandle = createMockHandle('my-project');
+            const initialProject: ProjectMetadata = {
+                id: 'project-autostart',
+                name: 'My Project',
+                folderPath: 'my-project',
+                fsaHandle: mockHandle,
+                lastOpened: new Date(),
+            };
+
+            renderHook(() => useWorkspace(), {
+                wrapper: createWrapper({
+                    projectId: 'project-autostart',
+                    initialProject,
+                }),
+            });
+
+            // Effect runs asynchronously.
+            // We configured getPermissionState mock to return 'granted' in the top level mock.
+
+            // Wait for state update (permissionState -> granted, syncStatus -> idle after finish)
+            // or check if SyncManager was called.
+
+            // Since performSync is async, we might need to wait.
+            await act(async () => {
+                await new Promise(resolve => setTimeout(resolve, 10)); // clear event loop
+            });
+
+            // Check if SyncManager was instantiated
+            expect(SyncManager).toHaveBeenCalled();
         });
     });
 

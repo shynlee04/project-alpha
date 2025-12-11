@@ -1,0 +1,96 @@
+.
+├── package.json
+├── pnpm-lock.yaml
+├── public
+│   ├── _headers
+│   ├── favicon.ico
+│   ├── logo192.png
+│   ├── logo512.png
+│   ├── manifest.json
+│   ├── robots.txt
+│   ├── tanstack-circle-logo.png
+│   └── tanstack-word-logo-white.svg
+├── README.md
+├── src
+│   ├── components
+│   │   ├── Header.tsx
+│   │   ├── ide
+│   │   │   ├── FileTree
+│   │   │   │   ├── ContextMenu.tsx
+│   │   │   │   ├── FileTree.tsx
+│   │   │   │   ├── FileTreeItem.tsx
+│   │   │   │   ├── icons.tsx
+│   │   │   │   ├── index.ts
+│   │   │   │   └── types.ts
+│   │   │   ├── MonacoEditor
+│   │   │   │   ├── EditorTabBar.tsx
+│   │   │   │   ├── index.ts
+│   │   │   │   └── MonacoEditor.tsx
+│   │   │   ├── PreviewPanel
+│   │   │   │   ├── index.ts
+│   │   │   │   ├── PreviewPanel.tsx
+│   │   │   │   └── types.ts
+│   │   │   └── XTerminal.tsx
+│   │   ├── layout
+│   │   │   └── IDELayout.tsx
+│   │   └── ui
+│   │       └── Toast
+│   │           ├── index.ts
+│   │           ├── Toast.tsx
+│   │           └── ToastContext.tsx
+│   ├── data
+│   │   └── demo.punk-songs.ts
+│   ├── hooks
+│   │   └── useProcessManager.ts
+│   ├── lib
+│   │   ├── editor
+│   │   │   ├── __tests__
+│   │   │   │   └── language-utils.test.ts
+│   │   │   ├── index.ts
+│   │   │   └── language-utils.ts
+│   │   ├── filesystem
+│   │   │   ├── __tests__
+│   │   │   │   ├── local-fs-adapter.integration.test.ts
+│   │   │   │   └── local-fs-adapter.test.ts
+│   │   │   ├── index.ts
+│   │   │   ├── local-fs-adapter.ts
+│   │   │   ├── permission-lifecycle.test.ts
+│   │   │   ├── permission-lifecycle.ts
+│   │   │   ├── sync-manager.test.ts
+│   │   │   ├── sync-manager.ts
+│   │   │   └── sync-types.ts
+│   │   ├── webcontainer
+│   │   │   ├── index.ts
+│   │   │   ├── manager.ts
+│   │   │   ├── process-manager.ts
+│   │   │   ├── terminal-adapter.ts
+│   │   │   └── types.ts
+│   │   └── workspace
+│   │       ├── index.ts
+│   │       ├── project-store.test.ts
+│   │       ├── project-store.ts
+│   │       ├── WorkspaceContext.test.tsx
+│   │       └── WorkspaceContext.tsx
+│   ├── logo.svg
+│   ├── router.tsx
+│   ├── routes
+│   │   ├── __root.tsx
+│   │   ├── demo
+│   │   │   ├── api.names.ts
+│   │   │   ├── start.api-request.tsx
+│   │   │   ├── start.server-funcs.tsx
+│   │   │   ├── start.ssr.data-only.tsx
+│   │   │   ├── start.ssr.full-ssr.tsx
+│   │   │   ├── start.ssr.index.tsx
+│   │   │   └── start.ssr.spa-mode.tsx
+│   │   ├── index.tsx
+│   │   ├── test-fs-adapter.tsx
+│   │   └── workspace
+│   │       └── $projectId.tsx
+│   ├── routeTree.gen.ts
+│   └── styles.css
+├── tree.txt
+├── tsconfig.json
+└── vite.config.ts
+
+23 directories, 71 files
