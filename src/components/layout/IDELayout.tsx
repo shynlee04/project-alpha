@@ -4,6 +4,13 @@ import { MessageSquare, X, FolderOpen, Loader2 } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
 import { LocalFSAdapter, SyncManager, type SyncProgress, type SyncResult } from '../../lib/filesystem'
+import {
+    saveDirectoryHandleReference,
+    loadDirectoryHandleReference,
+    getPermissionState,
+    ensureReadWritePermission,
+    type FsaPermissionState,
+} from '../../lib/filesystem/permission-lifecycle'
 import { boot } from '../../lib/webcontainer'
 import { useEffect } from 'react'
 
@@ -19,6 +26,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     const [isSyncing, setIsSyncing] = useState(false)
     const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null)
     const [syncError, setSyncError] = useState<string | null>(null)
+    const [permissionState, setPermissionState] = useState<FsaPermissionState>('unknown')
 
     // Keep a reference to the SyncManager for dual writes
     const syncManagerRef = useRef<SyncManager | null>(null)
@@ -26,6 +34,59 @@ export function IDELayout({ projectId }: IDELayoutProps) {
     useEffect(() => {
         // Start booting WebContainer as soon as IDE layout mounts
         boot().catch(console.error);
+
+        // Attempt to restore previously granted directory handle (Story 3.4)
+        if (!LocalFSAdapter.isSupported()) {
+            setPermissionState('denied');
+            console.warn('[IDE] File System Access API not supported; using virtual-only mode.');
+            return;
+        }
+
+        (async () => {
+            try {
+                const restored = await loadDirectoryHandleReference(projectId);
+                if (!restored) return;
+
+                setDirectoryHandle(restored);
+
+                const state = await getPermissionState(restored, 'readwrite');
+                setPermissionState(state);
+                console.log('[IDE] FSA permission state on restore:', state);
+
+                if (state !== 'granted') {
+                    // Keep handle for potential re-prompt via Open Folder button
+                    return;
+                }
+
+                // Auto-sync when permission is still granted on reload
+                setIsSyncing(true);
+                const adapter = new LocalFSAdapter();
+                adapter.setDirectoryHandle(restored);
+
+                const syncManager = new SyncManager(adapter, {
+                    onProgress: (progress) => {
+                        setSyncProgress(progress);
+                    },
+                    onError: (error) => {
+                        console.warn('[IDE] Sync error (restored):', error.message, error.filePath);
+                    },
+                    onComplete: (result: SyncResult) => {
+                        console.log('[IDE] Sync complete (restored):', result);
+                        if (result.failedFiles.length > 0) {
+                            setSyncError(`Synced with ${result.failedFiles.length} failed files`);
+                        }
+                    },
+                });
+
+                syncManagerRef.current = syncManager;
+                await syncManager.syncToWebContainer();
+            } catch (error) {
+                console.warn('[IDE] Failed to restore directory handle:', error);
+            } finally {
+                setIsSyncing(false);
+                setSyncProgress(null);
+            }
+        })();
     }, []);
 
     const handleOpenFolder = useCallback(async () => {
@@ -38,10 +99,40 @@ export function IDELayout({ projectId }: IDELayoutProps) {
         setSyncError(null);
 
         try {
-            // Step 1: Request directory access
+            let handle = directoryHandle;
+
+            // If we already have a handle, try to ensure read/write permission first
+            if (handle) {
+                const perm = await ensureReadWritePermission(handle);
+                if (perm === 'denied') {
+                    handle = null;
+                    setPermissionState('denied');
+                    console.warn('[IDE] FSA permission denied; switching to virtual-only mode.');
+                } else {
+                    setPermissionState('granted');
+                }
+            }
+
             const adapter = new LocalFSAdapter();
-            const handle = await adapter.requestDirectoryAccess();
+
+            // If no usable handle, fall back to requesting a new one via picker
+            if (!handle) {
+                const requested = await adapter.requestDirectoryAccess();
+                handle = requested;
+                setPermissionState('granted');
+            } else {
+                adapter.setDirectoryHandle(handle);
+            }
+
+            if (!handle) {
+                throw new Error('No directory handle available after permission flow');
+            }
+
             setDirectoryHandle(handle);
+            const persisted = await saveDirectoryHandleReference(handle, projectId);
+            if (!persisted) {
+                console.warn('[IDE] Failed to persist directory handle; restore-on-reload may be unavailable.');
+            }
 
             // Step 2: Create SyncManager and sync to WebContainers
             setIsSyncing(true);
@@ -75,7 +166,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
             setIsSyncing(false);
             setSyncProgress(null);
         }
-    }, []);
+    }, [directoryHandle]);
 
     const handleFileSelect = useCallback((path: string, handle: FileSystemFileHandle) => {
         setSelectedFilePath(path);
@@ -110,6 +201,24 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                                 ? `Syncing${syncProgress ? ` (${syncProgress.syncedFiles} files)` : '...'}`
                                 : 'Open Folder'}
                     </button>
+                    {permissionState !== 'unknown' && (
+                        <span className="text-xs text-slate-500">
+                            FS: {permissionState}
+                        </span>
+                    )}
+                    {permissionState === 'prompt' && (
+                        <button
+                            onClick={handleOpenFolder}
+                            className="text-xs text-cyan-400 hover:text-cyan-200 underline"
+                        >
+                            Re-authorize
+                        </button>
+                    )}
+                    {permissionState === 'denied' && (
+                        <span className="text-xs text-amber-400">
+                            Local folder access denied – using virtual workspace
+                        </span>
+                    )}
                     {syncError && (
                         <span className="text-xs text-amber-400" title={syncError}>
                             ⚠️ {syncError.length > 25 ? syncError.slice(0, 25) + '...' : syncError}
@@ -142,7 +251,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                         </div>
                         <div className="flex-1 min-h-0">
                             <FileTree
-                                directoryHandle={directoryHandle}
+                                directoryHandle={permissionState === 'granted' ? directoryHandle : null}
                                 selectedPath={selectedFilePath}
                                 onFileSelect={handleFileSelect}
                             />
@@ -228,6 +337,7 @@ export function IDELayout({ projectId }: IDELayoutProps) {
                                     <button
                                         onClick={() => setIsChatVisible(false)}
                                         className="text-slate-500 hover:text-slate-300 transition-colors"
+                                        title="Close chat panel"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>

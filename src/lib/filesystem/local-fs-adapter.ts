@@ -243,6 +243,10 @@ export class LocalFSAdapter {
     return this.directoryHandle;
   }
 
+  setDirectoryHandle(handle: FileSystemDirectoryHandle): void {
+    this.directoryHandle = handle;
+  }
+
   /**
    * Read a file from the directory
    *
