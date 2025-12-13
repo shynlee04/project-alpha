@@ -27,7 +27,7 @@ const crossOriginIsolationPlugin: Plugin = {
 const config = defineConfig({
   plugins: [
     crossOriginIsolationPlugin, // Must be first for cross-origin isolation
-    devtools(),
+    devtools({ eventBusConfig: { port: 42070 } }),
     nitro(),
     // this is the plugin that enables path aliases
     viteTsConfigPaths({

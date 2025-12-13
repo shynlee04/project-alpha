@@ -1,14 +1,14 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { MessageSquare, X, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
 import { MonacoEditor, type OpenFile } from '../ide/MonacoEditor'
 import { PreviewPanel } from '../ide/PreviewPanel'
+import { AgentChatPanel } from '../ide/AgentChatPanel'
 // Story 3-8: Use Workspace Context
 import { useWorkspace } from '../../lib/workspace'
 import { boot, onServerReady, isBooted } from '../../lib/webcontainer'
-import { useEffect } from 'react'
 import { useToast } from '../ui/Toast'
 
 // Story 3-8: IDELayout no longer needs props as it consumes context
@@ -19,6 +19,7 @@ export function IDELayout() {
   // Story 3-5: Added directoryHandle, switchFolder, syncNow for folder switching UI
   const {
     projectId,
+    projectMetadata,
     directoryHandle,
     permissionState,
     syncStatus,
@@ -33,6 +34,32 @@ export function IDELayout() {
 
   const [isChatVisible, setIsChatVisible] = useState(true)
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>()
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isModifierPressed = event.metaKey || event.ctrlKey
+      if (!isModifierPressed || event.key.toLowerCase() !== 'k') return
+
+      const target = event.target
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName?.toLowerCase()
+        const isEditable =
+          tagName === 'input' ||
+          tagName === 'textarea' ||
+          target.isContentEditable ||
+          Boolean(target.closest('.monaco-editor'))
+
+        if (isEditable) return
+      }
+
+      event.preventDefault()
+      setIsChatVisible(true)
+      window.dispatchEvent(new CustomEvent('ide.chat.focus'))
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   // Monaco Editor state
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
@@ -374,17 +401,8 @@ export function IDELayout() {
                     <X className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="flex-1 p-4 flex flex-col">
-                  <div className="flex-1 text-sm text-slate-500 italic flex items-center justify-center">
-                    Chat Messages Placeholder
-                  </div>
-                  <div className="mt-4">
-                    <input
-                      type="text"
-                      placeholder="Ask the agent... (⌘K)"
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50"
-                    />
-                  </div>
+                <div className="flex-1 min-h-0">
+                  <AgentChatPanel projectName={projectMetadata?.name ?? projectId ?? 'Project'} />
                 </div>
               </div>
             </Panel>

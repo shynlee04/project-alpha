@@ -1,7 +1,8 @@
 /**
- * Project Store - IndexedDB-backed persistence for project metadata.
+ * Project Store - Unified persistence for project metadata.
  *
  * Story 3-7: Implement Project Metadata Persistence
+ * Story 5-1: Set Up IndexedDB Schema (unified DB)
  *
  * This module provides CRUD operations for storing and retrieving project
  * metadata including FSA directory handles for permission restoration.
@@ -10,7 +11,12 @@
  * main src/ infrastructure.
  */
 
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import {
+    getPersistenceDB,
+    _resetPersistenceDBForTesting,
+    type ViaGentPersistenceDB,
+} from '../persistence';
 import { getPermissionState, type FsaPermissionState } from '../filesystem/permission-lifecycle';
 
 // ============================================================================
@@ -53,10 +59,10 @@ export interface ProjectWithPermission extends ProjectMetadata {
 }
 
 // ============================================================================
-// IndexedDB Schema
+// Legacy Migration (Story 5-1)
 // ============================================================================
 
-interface ViaGentDB extends DBSchema {
+interface LegacyProjectsDB extends DBSchema {
     projects: {
         key: string;
         value: ProjectMetadata;
@@ -66,58 +72,60 @@ interface ViaGentDB extends DBSchema {
     };
 }
 
-const DB_NAME = 'via-gent-projects';
-const DB_VERSION = 1;
-const STORE_NAME = 'projects';
+const LEGACY_DB_NAME = 'via-gent-projects';
+const LEGACY_STORE_NAME = 'projects';
+const STORE_NAME: keyof ViaGentPersistenceDB = 'projects';
+
+let legacyMigrationAttempted = false;
+
+async function migrateLegacyProjectsIfNeeded(
+    db: IDBPDatabase<ViaGentPersistenceDB>
+): Promise<void> {
+    if (legacyMigrationAttempted) return;
+    legacyMigrationAttempted = true;
+
+    try {
+        const existingCount = await db.count(STORE_NAME);
+        if (existingCount > 0) return;
+
+        const legacyDb = await openDB<LegacyProjectsDB>(LEGACY_DB_NAME);
+        if (!legacyDb.objectStoreNames.contains(LEGACY_STORE_NAME)) {
+            legacyDb.close();
+            return;
+        }
+
+        const legacyProjects = await legacyDb.getAll(LEGACY_STORE_NAME);
+        legacyDb.close();
+
+        if (legacyProjects.length === 0) return;
+
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        await Promise.all(
+            legacyProjects.map((project) =>
+                tx.store.put({
+                    ...project,
+                    lastOpened: new Date(project.lastOpened),
+                })
+            )
+        );
+        await tx.done;
+
+        console.log('[ProjectStore] Migrated legacy projects:', legacyProjects.length);
+    } catch (error) {
+        console.warn('[ProjectStore] Legacy migration failed:', error);
+    }
+}
 
 // ============================================================================
 // Database Connection
 // ============================================================================
 
-let dbInstance: IDBPDatabase<ViaGentDB> | null = null;
+async function getDB(): Promise<IDBPDatabase<ViaGentPersistenceDB> | null> {
+    const db = await getPersistenceDB();
+    if (!db) return null;
 
-/**
- * Get or create database connection.
- * Uses singleton pattern for connection reuse.
- */
-async function getDB(): Promise<IDBPDatabase<ViaGentDB> | null> {
-    if (typeof indexedDB === 'undefined') {
-        console.warn('[ProjectStore] IndexedDB is not available');
-        return null;
-    }
-
-    if (dbInstance) {
-        return dbInstance;
-    }
-
-    try {
-        dbInstance = await openDB<ViaGentDB>(DB_NAME, DB_VERSION, {
-            upgrade(db) {
-                // Create projects store if it doesn't exist
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-                    // Create index for sorting by last opened
-                    store.createIndex('by-last-opened', 'lastOpened');
-                }
-            },
-            blocked() {
-                console.warn('[ProjectStore] Database upgrade blocked by other tab');
-            },
-            blocking() {
-                // Close connection to allow other tabs to upgrade
-                dbInstance?.close();
-                dbInstance = null;
-            },
-            terminated() {
-                dbInstance = null;
-            },
-        });
-
-        return dbInstance;
-    } catch (error) {
-        console.error('[ProjectStore] Failed to open database:', error);
-        return null;
-    }
+    await migrateLegacyProjectsIfNeeded(db);
+    return db;
 }
 
 /**
@@ -126,19 +134,18 @@ async function getDB(): Promise<IDBPDatabase<ViaGentDB> | null> {
  * @internal
  */
 export async function _resetDBForTesting(): Promise<void> {
-    if (dbInstance) {
-        dbInstance.close();
-        dbInstance = null;
-    }
-    // Also delete the database to ensure fresh state
+    await _resetPersistenceDBForTesting();
+
     if (typeof indexedDB !== 'undefined') {
-        return new Promise((resolve) => {
-            const request = indexedDB.deleteDatabase(DB_NAME);
+        await new Promise<void>((resolve) => {
+            const request = indexedDB.deleteDatabase(LEGACY_DB_NAME);
             request.onsuccess = () => resolve();
             request.onerror = () => resolve();
             request.onblocked = () => resolve();
         });
     }
+
+    legacyMigrationAttempted = false;
 }
 
 // ============================================================================
@@ -172,7 +179,6 @@ export async function saveProject(project: ProjectMetadata): Promise<boolean> {
     if (!db) return false;
 
     try {
-        // Ensure lastOpened is a Date object
         const projectToSave = {
             ...project,
             lastOpened: new Date(project.lastOpened),
@@ -215,7 +221,6 @@ export async function listProjects(): Promise<ProjectMetadata[]> {
     if (!db) return [];
 
     try {
-        // Get all projects and sort by lastOpened descending
         const projects = await db.getAll(STORE_NAME);
         return projects.sort(
             (a, b) => new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime()
@@ -235,14 +240,12 @@ export async function listProjects(): Promise<ProjectMetadata[]> {
 export async function listProjectsWithPermission(): Promise<ProjectWithPermission[]> {
     const projects = await listProjects();
 
-    // Check permission state for each project in parallel
     const projectsWithPermission = await Promise.all(
         projects.map(async (project) => {
             try {
                 const permissionState = await getPermissionState(project.fsaHandle, 'readwrite');
                 return { ...project, permissionState };
             } catch {
-                // If permission check fails, assume denied
                 return { ...project, permissionState: 'denied' as FsaPermissionState };
             }
         })
@@ -353,3 +356,4 @@ export async function getProjectCount(): Promise<number> {
         return 0;
     }
 }
+

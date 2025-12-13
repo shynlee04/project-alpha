@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Folder, Plus, Clock, Trash2, AlertCircle, CheckCircle, HelpCircle } from 'lucide-react'
+import { Folder, Plus, Clock, Trash2, AlertCircle, CheckCircle, HelpCircle, Loader2 } from 'lucide-react'
 import { useState, useEffect, useCallback } from 'react'
 import {
   listProjectsWithPermission,
@@ -18,6 +18,8 @@ function Dashboard() {
   const [projects, setProjects] = useState<ProjectWithPermission[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null)
+  const [openingPhase, setOpeningPhase] = useState<'authorizing' | 'opening' | null>(null)
 
   // Load projects on mount
   useEffect(() => {
@@ -40,6 +42,9 @@ function Dashboard() {
 
   // Handle project click with permission check
   const handleProjectClick = useCallback(async (project: ProjectWithPermission) => {
+    setOpeningProjectId(project.id)
+    setOpeningPhase('opening')
+
     if (project.permissionState === 'granted') {
       // Permission already granted, navigate directly
       navigate({ to: '/workspace/$projectId', params: { projectId: project.id } })
@@ -49,21 +54,29 @@ function Dashboard() {
     if (project.permissionState === 'prompt') {
       // Try to re-authorize
       try {
+        setOpeningPhase('authorizing')
         const result = await ensureReadWritePermission(project.fsaHandle)
         if (result === 'granted') {
+          setOpeningPhase('opening')
           navigate({ to: '/workspace/$projectId', params: { projectId: project.id } })
         } else {
           setError(`Permission denied for "${project.name}". Please re-select the folder.`)
+          setOpeningProjectId(null)
+          setOpeningPhase(null)
         }
       } catch (err) {
         console.error('[Dashboard] Permission request failed:', err)
         setError(`Could not access "${project.name}". Please re-select the folder.`)
+        setOpeningProjectId(null)
+        setOpeningPhase(null)
       }
       return
     }
 
     // Permission denied - user needs to re-select folder
     setError(`Access to "${project.name}" was denied. Please open the folder again using "Open Local Folder".`)
+    setOpeningProjectId(null)
+    setOpeningPhase(null)
   }, [navigate])
 
   // Handle delete
@@ -231,9 +244,18 @@ function Dashboard() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
-                  <div className="text-slate-500 text-sm group-hover:text-white transition-colors">
-                    Open Workspace →
-                  </div>
+                  {openingProjectId === project.id ? (
+                    <div className="flex items-center gap-2 text-xs text-cyan-400">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>
+                        {openingPhase === 'authorizing' ? 'Authorizing…' : 'Opening…'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-slate-500 text-sm group-hover:text-white transition-colors">
+                      Open Workspace →
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
