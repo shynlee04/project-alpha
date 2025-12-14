@@ -23,6 +23,8 @@ export function XTerminal({ className }: XTerminalProps) {
         if (initializedRef.current || !containerRef.current) return;
         initializedRef.current = true;
 
+        let disposed = false;
+
         console.log('[XTerminal] Initializing...');
 
         // 1. Initialize xterm.js
@@ -58,9 +60,30 @@ export function XTerminal({ className }: XTerminalProps) {
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
 
+        const safeFitNow = () => {
+            const el = containerRef.current;
+            if (!el) return;
+
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+
+            try {
+                fitAddon.fit();
+            } catch {
+                // Ignore fit errors
+            }
+        };
+
+        const scheduleFit = () => {
+            window.requestAnimationFrame(() => {
+                if (disposed) return;
+                safeFitNow();
+            });
+        };
+
         // Open terminal in container
         term.open(containerRef.current);
-        fitAddon.fit();
+        scheduleFit();
 
         // Save refs
         terminalRef.current = term;
@@ -81,32 +104,33 @@ export function XTerminal({ className }: XTerminalProps) {
 
         // 3. Start shell
         // Wait for WebContainer to be ready
-        boot().then(async () => {
-            if (initializedRef.current && adapter) {
+        boot()
+            .then(async () => {
+                if (disposed) return;
+                if (!initializedRef.current) return;
+                if (terminalRef.current !== term) return;
+                if (adapterRef.current !== adapter) return;
+
                 await adapter.startShell();
-            }
-        }).catch((err: any) => {
-            term.write(`\r\n\x1b[31mFailed to boot WebContainer: ${err.message}\x1b[0m\r\n`);
-        });
+            })
+            .catch((err: any) => {
+                if (disposed) return;
+                term.write(`\r\n\x1b[31mFailed to boot WebContainer: ${err.message}\x1b[0m\r\n`);
+            });
 
         // 4. Resize observer
         const resizeObserver = new ResizeObserver(() => {
-            // Debounce or just call fit
-            window.requestAnimationFrame(() => {
-                if (fitAddonRef.current) {
-                    try {
-                        fitAddonRef.current.fit();
-                    } catch (e) {
-                        // ignore fit errors (e.g. if container is hidden)
-                    }
-                }
-            });
+            if (disposed) return;
+            if (fitAddonRef.current) {
+                scheduleFit();
+            }
         });
         resizeObserver.observe(containerRef.current);
 
         // Cleanup
         return () => {
             console.log('[XTerminal] Disposing...');
+            disposed = true;
             resizeObserver.disconnect();
             if (adapterRef.current) {
                 adapterRef.current.dispose();
@@ -114,6 +138,10 @@ export function XTerminal({ className }: XTerminalProps) {
             if (terminalRef.current) {
                 terminalRef.current.dispose();
             }
+
+            adapterRef.current = null;
+            fitAddonRef.current = null;
+            terminalRef.current = null;
             initializedRef.current = false;
         };
     }, []);

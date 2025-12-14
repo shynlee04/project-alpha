@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import React from 'react';
 import { useWorkspace, WorkspaceProvider, type WorkspaceProviderProps } from './WorkspaceContext';
 import type { ProjectMetadata } from './project-store';
@@ -27,11 +27,10 @@ vi.mock('./project-store', () => ({
 }));
 
 vi.mock('../filesystem', () => ({
-    LocalFSAdapter: {
-        isSupported: vi.fn().mockReturnValue(true),
-        prototype: {
-            setDirectoryHandle: vi.fn(),
-        },
+    LocalFSAdapter: class LocalFSAdapter {
+        static isSupported = vi.fn().mockReturnValue(true);
+
+        setDirectoryHandle = vi.fn();
     },
     SyncManager: vi.fn().mockImplementation(() => ({
         syncToWebContainer: vi.fn().mockResolvedValue({ syncedFiles: [], failedFiles: [] }),
@@ -106,6 +105,7 @@ describe('WorkspaceContext', () => {
 
             expect(result.current).toBeDefined();
             expect(result.current.projectId).toBe('test-project-1');
+            expect(result.current.eventBus).toBeDefined();
         });
     });
 
@@ -154,6 +154,11 @@ describe('WorkspaceContext', () => {
         it('should trigger sync if permission is already granted', async () => {
             // Mock SyncManager to verify instantiation
             const { SyncManager } = await import('../filesystem');
+            const { getPermissionState } = await import('../filesystem/permission-lifecycle');
+
+            (getPermissionState as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue(
+                'granted'
+            );
 
             const mockHandle = createMockHandle('my-project');
             const initialProject: ProjectMetadata = {
@@ -171,19 +176,10 @@ describe('WorkspaceContext', () => {
                 }),
             });
 
-            // Effect runs asynchronously.
-            // We configured getPermissionState mock to return 'granted' in the top level mock.
-
-            // Wait for state update (permissionState -> granted, syncStatus -> idle after finish)
-            // or check if SyncManager was called.
-
-            // Since performSync is async, we might need to wait.
-            await act(async () => {
-                await new Promise(resolve => setTimeout(resolve, 10)); // clear event loop
+            await waitFor(() => {
+                expect(getPermissionState).toHaveBeenCalled();
+                expect(SyncManager).toHaveBeenCalled();
             });
-
-            // Check if SyncManager was instantiated
-            expect(SyncManager).toHaveBeenCalled();
         });
     });
 

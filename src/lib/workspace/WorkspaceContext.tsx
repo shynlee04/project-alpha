@@ -31,6 +31,7 @@ import {
     saveDirectoryHandleReference,
     type FsaPermissionState,
 } from '../filesystem/permission-lifecycle';
+import { createWorkspaceEventBus, type WorkspaceEventEmitter } from '../events';
 
 // ============================================================================
 // Types
@@ -75,6 +76,8 @@ export type WorkspaceContextValue = WorkspaceState & WorkspaceActions & {
     localAdapterRef: React.RefObject<LocalFSAdapter | null>;
     /** Ref to SyncManager for sync operations */
     syncManagerRef: React.RefObject<SyncManager | null>;
+    /** Workspace-wide event bus for decoupled observability */
+    eventBus: WorkspaceEventEmitter;
 };
 
 // ============================================================================
@@ -140,6 +143,7 @@ export function WorkspaceProvider({
     // Refs for adapters
     const localAdapterRef = useRef<LocalFSAdapter | null>(null);
     const syncManagerRef = useRef<SyncManager | null>(null);
+    const eventBusRef = useRef<WorkspaceEventEmitter>(createWorkspaceEventBus());
 
     // -------------------------------------------------------------------------
     // Internal: Perform sync operation
@@ -379,6 +383,7 @@ export function WorkspaceProvider({
         // Refs
         localAdapterRef,
         syncManagerRef,
+        eventBus: eventBusRef.current,
     };
 
     return (

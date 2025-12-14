@@ -1,5 +1,10 @@
-import { useState, useCallback, useEffect } from 'react'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+  type ImperativePanelGroupHandle,
+} from 'react-resizable-panels'
 import { MessageSquare, X, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
 import { XTerminal } from '../ide/XTerminal'
 import { FileTree } from '../ide/FileTree'
@@ -7,7 +12,13 @@ import { MonacoEditor, type OpenFile } from '../ide/MonacoEditor'
 import { PreviewPanel } from '../ide/PreviewPanel'
 import { AgentChatPanel } from '../ide/AgentChatPanel'
 // Story 3-8: Use Workspace Context
-import { useWorkspace } from '../../lib/workspace'
+import {
+  getIdeState,
+  saveIdeState,
+  useWorkspace,
+  type IdeState,
+  type TerminalTab,
+} from '../../lib/workspace'
 import { boot, onServerReady, isBooted } from '../../lib/webcontainer'
 import { useToast } from '../ui/Toast'
 
@@ -29,6 +40,7 @@ export function IDELayout() {
     openFolder,
     switchFolder,
     syncNow,
+    localAdapterRef,
     syncManagerRef,
   } = useWorkspace()
 
@@ -65,12 +77,206 @@ export function IDELayout() {
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([])
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
 
+  // Story 5-4: IDE state persistence
+  const [terminalTab, setTerminalTab] = useState<TerminalTab>('terminal')
+  const [restoredIdeState, setRestoredIdeState] = useState<IdeState | null>(null)
+
+  const mainPanelGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
+  const centerPanelGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
+  const editorPanelGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
+
+  const panelLayoutsRef = useRef<Record<string, number[]>>({})
+  const appliedPanelGroupsRef = useRef<Set<string>>(new Set())
+  const didRestoreOpenFilesRef = useRef(false)
+  const activeFileScrollTopRef = useRef<number | undefined>(undefined)
+
+  const persistenceSuppressedRef = useRef(true)
+  const persistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openFilePathsKey = openFiles.map((f) => f.path).join('\u0000')
+  const openFilePathsRef = useRef<string[]>([])
+  const activeFilePathRef = useRef<string | null>(null)
+  const terminalTabRef = useRef<TerminalTab>('terminal')
+  const chatVisibleRef = useRef(true)
+
+  const scheduleIdeStatePersistence = useCallback(
+    (delayMs = 250) => {
+      if (!projectId || persistenceSuppressedRef.current) return
+
+      if (persistTimeoutRef.current) {
+        clearTimeout(persistTimeoutRef.current)
+      }
+
+      persistTimeoutRef.current = setTimeout(() => {
+        void saveIdeState({
+          projectId,
+          panelLayouts: panelLayoutsRef.current,
+          openFiles: openFilePathsRef.current,
+          activeFile: activeFilePathRef.current,
+          activeFileScrollTop: activeFileScrollTopRef.current,
+          terminalTab: terminalTabRef.current,
+          chatVisible: chatVisibleRef.current,
+        }).catch((error) => {
+          console.warn('[IDE] Failed to persist IDE state:', error)
+        })
+      }, delayMs)
+    },
+    [projectId],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (persistTimeoutRef.current) {
+        clearTimeout(persistTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handlePanelLayoutChange = useCallback(
+    (groupId: string, layout: number[]) => {
+      panelLayoutsRef.current[groupId] = layout
+      scheduleIdeStatePersistence(400)
+    },
+    [scheduleIdeStatePersistence],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    appliedPanelGroupsRef.current = new Set()
+    didRestoreOpenFilesRef.current = false
+    persistenceSuppressedRef.current = true
+    setRestoredIdeState(null)
+
+    const load = async () => {
+      if (!projectId) {
+        persistenceSuppressedRef.current = false
+        return
+      }
+
+      const saved = await getIdeState(projectId)
+      if (cancelled) return
+
+      setRestoredIdeState(saved)
+
+      if (saved) {
+        setIsChatVisible(saved.chatVisible)
+        setTerminalTab(saved.terminalTab)
+        setActiveFilePath(saved.activeFile)
+        activeFileScrollTopRef.current = saved.activeFileScrollTop
+        panelLayoutsRef.current = saved.panelLayouts ?? {}
+      }
+
+      persistenceSuppressedRef.current = false
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    const layouts = restoredIdeState?.panelLayouts
+    if (!layouts) return
+
+    const applyLayout = (
+      groupKey: string,
+      ref: ImperativePanelGroupHandle | null,
+      expectedLength?: number,
+    ) => {
+      if (appliedPanelGroupsRef.current.has(groupKey)) return
+      const layout = layouts[groupKey]
+      if (!ref || !layout) return
+      if (expectedLength !== undefined && layout.length !== expectedLength) return
+
+      ref.setLayout(layout)
+      appliedPanelGroupsRef.current.add(groupKey)
+    }
+
+    applyLayout('center', centerPanelGroupRef.current)
+    applyLayout('editor', editorPanelGroupRef.current)
+    applyLayout('main', mainPanelGroupRef.current, isChatVisible ? 3 : 2)
+  }, [restoredIdeState, isChatVisible])
+
+  useEffect(() => {
+    openFilePathsRef.current = openFiles.map((f) => f.path)
+  }, [openFilePathsKey])
+
+  useEffect(() => {
+    activeFilePathRef.current = activeFilePath
+  }, [activeFilePath])
+
+  useEffect(() => {
+    terminalTabRef.current = terminalTab
+  }, [terminalTab])
+
+  useEffect(() => {
+    chatVisibleRef.current = isChatVisible
+  }, [isChatVisible])
+
+  useEffect(() => {
+    scheduleIdeStatePersistence(250)
+  }, [scheduleIdeStatePersistence, openFilePathsKey, activeFilePath, terminalTab, isChatVisible])
+
   // FileTree refresh key (increment to trigger refresh)
   const [fileTreeRefreshKey, setFileTreeRefreshKey] = useState(0)
 
   // Preview panel state
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewPort, setPreviewPort] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (didRestoreOpenFilesRef.current) return
+    if (!restoredIdeState) return
+
+    // If the user already opened files this session, do not override.
+    if (openFiles.length > 0) {
+      didRestoreOpenFilesRef.current = true
+      return
+    }
+
+    if (restoredIdeState.openFiles.length === 0) {
+      didRestoreOpenFilesRef.current = true
+      return
+    }
+
+    if (permissionState !== 'granted') return
+    if (syncStatus === 'syncing') return
+
+    const adapter = localAdapterRef.current
+    if (!adapter) return
+
+    didRestoreOpenFilesRef.current = true
+
+    void (async () => {
+      const restoredFiles: OpenFile[] = []
+
+      for (const path of restoredIdeState.openFiles) {
+        try {
+          const result = await adapter.readFile(path)
+          if ('content' in result) {
+            restoredFiles.push({ path, content: result.content, isDirty: false })
+          }
+        } catch (error) {
+          console.warn('[IDE] Failed to restore tab:', path, error)
+        }
+      }
+
+      if (restoredFiles.length === 0) return
+
+      setOpenFiles(restoredFiles)
+
+      const preferredActive =
+        restoredIdeState.activeFile &&
+        restoredFiles.some((f) => f.path === restoredIdeState.activeFile)
+          ? restoredIdeState.activeFile
+          : restoredFiles[0].path
+
+      setActiveFilePath(preferredActive)
+      setSelectedFilePath(preferredActive)
+    })()
+  }, [restoredIdeState, openFiles.length, permissionState, syncStatus, localAdapterRef])
 
   useEffect(() => {
     // Start booting WebContainer as soon as IDE layout mounts
@@ -288,12 +494,14 @@ export function IDELayout() {
 
       {/* Main Resizable Layout */}
       <PanelGroup
+        ref={mainPanelGroupRef}
         direction="horizontal"
         className="flex-1"
-        autoSaveId="via-gent-ide-main"
+        onLayout={(layout) => handlePanelLayoutChange('main', layout)}
       >
         {/* Left Sidebar - FileTree */}
         <Panel
+          order={1}
           defaultSize={20}
           minSize={10}
           maxSize={30}
@@ -316,13 +524,18 @@ export function IDELayout() {
         <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500/50 transition-colors cursor-col-resize" />
 
         {/* Center Area - Editor + Terminal (Vertical Split) */}
-        <Panel minSize={30}>
-          <PanelGroup direction="vertical" autoSaveId="via-gent-ide-center">
+        <Panel order={2} minSize={30}>
+          <PanelGroup
+            ref={centerPanelGroupRef}
+            direction="vertical"
+            onLayout={(layout) => handlePanelLayoutChange('center', layout)}
+          >
             {/* Editor + Preview (Horizontal Split) */}
             <Panel defaultSize={70} minSize={30}>
               <PanelGroup
+                ref={editorPanelGroupRef}
                 direction="horizontal"
-                autoSaveId="via-gent-ide-editor"
+                onLayout={(layout) => handlePanelLayoutChange('editor', layout)}
               >
                 {/* Editor */}
                 <Panel defaultSize={60} minSize={30} className="bg-slate-950">
@@ -333,6 +546,15 @@ export function IDELayout() {
                     onActiveFileChange={setActiveFilePath}
                     onTabClose={handleTabClose}
                     onContentChange={handleContentChange}
+                    initialScrollTop={
+                      activeFilePath && activeFilePath === restoredIdeState?.activeFile
+                        ? restoredIdeState.activeFileScrollTop
+                        : undefined
+                    }
+                    onScrollTopChange={(_path, scrollTop) => {
+                      activeFileScrollTopRef.current = scrollTop
+                      scheduleIdeStatePersistence(400)
+                    }}
                   />
                 </Panel>
 
@@ -360,18 +582,50 @@ export function IDELayout() {
             >
               <div className="h-full flex flex-col border-t border-slate-800">
                 <div className="h-8 px-4 flex items-center gap-6 border-b border-slate-800/50">
-                  <span className="text-xs font-medium text-cyan-400 border-b-2 border-cyan-400 h-full flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setTerminalTab('terminal')}
+                    className={
+                      terminalTab === 'terminal'
+                        ? 'text-xs font-medium text-cyan-400 border-b-2 border-cyan-400 h-full flex items-center'
+                        : 'text-xs font-medium text-slate-500 hover:text-slate-300 h-full flex items-center'
+                    }
+                  >
                     Terminal
-                  </span>
-                  <span className="text-xs font-medium text-slate-500 hover:text-slate-300 cursor-pointer h-full flex items-center">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTerminalTab('output')}
+                    className={
+                      terminalTab === 'output'
+                        ? 'text-xs font-medium text-cyan-400 border-b-2 border-cyan-400 h-full flex items-center'
+                        : 'text-xs font-medium text-slate-500 hover:text-slate-300 h-full flex items-center'
+                    }
+                  >
                     Output
-                  </span>
-                  <span className="text-xs font-medium text-slate-500 hover:text-slate-300 cursor-pointer h-full flex items-center">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTerminalTab('problems')}
+                    className={
+                      terminalTab === 'problems'
+                        ? 'text-xs font-medium text-cyan-400 border-b-2 border-cyan-400 h-full flex items-center'
+                        : 'text-xs font-medium text-slate-500 hover:text-slate-300 h-full flex items-center'
+                    }
+                  >
                     Problems
-                  </span>
+                  </button>
                 </div>
                 <div className="flex-1 bg-slate-950 min-h-0 relative">
-                  <XTerminal />
+                  {terminalTab === 'terminal' ? (
+                    <XTerminal />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-500 text-sm">
+                      {terminalTab === 'output'
+                        ? 'Output (coming soon)'
+                        : 'Problems (coming soon)'}
+                    </div>
+                  )}
                 </div>
               </div>
             </Panel>
@@ -383,6 +637,7 @@ export function IDELayout() {
           <>
             <PanelResizeHandle className="w-1 bg-slate-800 hover:bg-cyan-500/50 transition-colors cursor-col-resize" />
             <Panel
+              order={3}
               defaultSize={25}
               minSize={15}
               maxSize={40}
@@ -402,7 +657,10 @@ export function IDELayout() {
                   </button>
                 </div>
                 <div className="flex-1 min-h-0">
-                  <AgentChatPanel projectName={projectMetadata?.name ?? projectId ?? 'Project'} />
+                  <AgentChatPanel
+                    projectId={projectId}
+                    projectName={projectMetadata?.name ?? projectId ?? 'Project'}
+                  />
                 </div>
               </div>
             </Panel>

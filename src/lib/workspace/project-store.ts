@@ -74,7 +74,7 @@ interface LegacyProjectsDB extends DBSchema {
 
 const LEGACY_DB_NAME = 'via-gent-projects';
 const LEGACY_STORE_NAME = 'projects';
-const STORE_NAME: keyof ViaGentPersistenceDB = 'projects';
+const STORE_NAME = 'projects' as const;
 
 let legacyMigrationAttempted = false;
 
@@ -356,4 +356,3 @@ export async function getProjectCount(): Promise<number> {
         return 0;
     }
 }
-

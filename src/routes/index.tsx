@@ -6,6 +6,7 @@ import {
   deleteProject,
   saveProject,
   generateProjectId,
+  updateProjectLastOpened,
   type ProjectWithPermission,
 } from '../lib/workspace'
 import { ensureReadWritePermission } from '../lib/filesystem/permission-lifecycle'
@@ -25,6 +26,18 @@ function Dashboard() {
   useEffect(() => {
     loadProjects()
   }, [])
+
+  useEffect(() => {
+    const staleCount = projects.filter((p) => p.permissionState !== 'granted').length
+    window.dispatchEvent(
+      new CustomEvent('dashboard:loaded', {
+        detail: {
+          projectCount: projects.length,
+          staleCount,
+        },
+      }),
+    )
+  }, [projects])
 
   const loadProjects = async () => {
     setIsLoading(true)
@@ -46,6 +59,14 @@ function Dashboard() {
     setOpeningPhase('opening')
 
     if (project.permissionState === 'granted') {
+      await updateProjectLastOpened(project.id)
+      setProjects((prev) => {
+        const updated = prev
+          .map((p) => (p.id === project.id ? { ...p, lastOpened: new Date() } : p))
+          .sort((a, b) => new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime())
+        return updated
+      })
+
       // Permission already granted, navigate directly
       navigate({ to: '/workspace/$projectId', params: { projectId: project.id } })
       return
@@ -58,6 +79,15 @@ function Dashboard() {
         const result = await ensureReadWritePermission(project.fsaHandle)
         if (result === 'granted') {
           setOpeningPhase('opening')
+
+          await updateProjectLastOpened(project.id)
+          setProjects((prev) => {
+            const updated = prev
+              .map((p) => (p.id === project.id ? { ...p, lastOpened: new Date() } : p))
+              .sort((a, b) => new Date(b.lastOpened).getTime() - new Date(a.lastOpened).getTime())
+            return updated
+          })
+
           navigate({ to: '/workspace/$projectId', params: { projectId: project.id } })
         } else {
           setError(`Permission denied for "${project.name}". Please re-select the folder.`)

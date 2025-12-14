@@ -25,6 +25,10 @@ export interface MonacoEditorProps {
     onTabClose?: (path: string) => void;
     /** Callback when file content changes (updates dirty state) */
     onContentChange?: (path: string, content: string) => void;
+    /** Optional initial scroll position for the active file (restored on reload) */
+    initialScrollTop?: number;
+    /** Callback when editor scroll position changes */
+    onScrollTopChange?: (path: string, scrollTop: number) => void;
 }
 
 /**
@@ -38,10 +42,16 @@ export function MonacoEditor({
     onActiveFileChange,
     onTabClose,
     onContentChange,
+    initialScrollTop,
+    onScrollTopChange,
 }: MonacoEditorProps) {
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
     const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scrollDebounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const activeFilePathRef = useRef<string | null>(activeFilePath);
+    const onScrollTopChangeRef = useRef<MonacoEditorProps['onScrollTopChange']>(onScrollTopChange);
+    const scrollListenerDisposeRef = useRef<{ dispose: () => void } | null>(null);
 
     // Track view states (scroll, cursor) per file for restoration
     const viewStatesRef = useRef<Map<string, editor.ICodeEditorViewState>>(new Map());
@@ -57,8 +67,20 @@ export function MonacoEditor({
             if (debounceTimeoutRef.current) {
                 clearTimeout(debounceTimeoutRef.current);
             }
+            if (scrollDebounceTimeoutRef.current) {
+                clearTimeout(scrollDebounceTimeoutRef.current);
+            }
+            scrollListenerDisposeRef.current?.dispose();
         };
     }, []);
+
+    useEffect(() => {
+        activeFilePathRef.current = activeFilePath;
+    }, [activeFilePath]);
+
+    useEffect(() => {
+        onScrollTopChangeRef.current = onScrollTopChange;
+    }, [onScrollTopChange]);
 
     // Save view state when switching files
     useEffect(() => {
@@ -80,6 +102,15 @@ export function MonacoEditor({
             }
         }
     }, [activeFilePath]);
+
+    // Story 5-4: Restore scroll position for the active file (on reload)
+    useEffect(() => {
+        if (!editorRef.current) return;
+        if (!activeFilePath) return;
+        if (initialScrollTop === undefined) return;
+
+        editorRef.current.setScrollTop(initialScrollTop);
+    }, [activeFilePath, initialScrollTop]);
 
     const handleEditorMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor;
@@ -106,6 +137,22 @@ export function MonacoEditor({
 
         // Focus the editor on mount
         editor.focus();
+
+        // Story 5-4: Persist scroll position (debounced) for active file
+        scrollListenerDisposeRef.current?.dispose();
+        scrollListenerDisposeRef.current = editor.onDidScrollChange(() => {
+            const path = activeFilePathRef.current;
+            const handler = onScrollTopChangeRef.current;
+            if (!path || !handler) return;
+
+            const scrollTop = editor.getScrollTop();
+            if (scrollDebounceTimeoutRef.current) {
+                clearTimeout(scrollDebounceTimeoutRef.current);
+            }
+            scrollDebounceTimeoutRef.current = setTimeout(() => {
+                handler(path, scrollTop);
+            }, 200);
+        });
     }, [activeFilePath, onSave]);
 
     const handleEditorChange: OnChange = useCallback((value) => {

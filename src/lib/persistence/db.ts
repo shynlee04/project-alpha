@@ -24,9 +24,20 @@ export interface ConversationRecord {
 
 export interface IdeStateRecord {
     projectId: string;
+    /**
+     * Panel layouts keyed by panel-group identifier (e.g. "main", "center", "editor").
+     * Use this for async persistence (IndexedDB) since react-resizable-panels storage is sync-only.
+     */
+    panelLayouts?: Record<string, number[]>;
+    /**
+     * Legacy single-layout field (kept for backward compatibility with early spikes).
+     */
     panelSizes?: number[];
     openFiles?: string[];
     activeFile?: string | null;
+    activeFileScrollTop?: number;
+    terminalTab?: 'terminal' | 'output' | 'problems';
+    chatVisible?: boolean;
     updatedAt: Date;
 }
 
@@ -135,4 +146,3 @@ export async function _resetPersistenceDBForTesting(): Promise<void> {
 
 export const PERSISTENCE_DB_NAME = DB_NAME;
 export const PERSISTENCE_DB_VERSION = DB_VERSION;
-

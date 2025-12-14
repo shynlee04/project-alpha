@@ -1,29 +1,62 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Send, User } from 'lucide-react';
+import { appendConversationMessage, clearConversation, getConversation } from '../../lib/workspace';
 
 type Message = {
     id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
     content: string;
     timestamp: number;
 };
 
 interface AgentChatPanelProps {
+    projectId: string | null;
     projectName?: string;
 }
 
-export function AgentChatPanel({ projectName = 'Project' }: AgentChatPanelProps) {
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: 'welcome',
-            role: 'assistant',
-            content: `Hi! I'm your AI coding assistant for ${projectName}. What would you like to work on?`,
-            timestamp: Date.now(),
-        },
-    ]);
+export function AgentChatPanel({ projectId, projectName = 'Project' }: AgentChatPanelProps) {
+    const createWelcomeMessage = (): Message => ({
+        id: 'welcome',
+        role: 'assistant',
+        content: `Hi! I'm your AI coding assistant for ${projectName}. What would you like to work on?`,
+        timestamp: Date.now(),
+    });
+
+    const [messages, setMessages] = useState<Message[]>([createWelcomeMessage()]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        let isCancelled = false;
+
+        const load = async () => {
+            try {
+                if (!projectId) {
+                    setMessages([createWelcomeMessage()]);
+                    return;
+                }
+
+                const convo = await getConversation(projectId);
+                if (isCancelled) return;
+
+                if (convo && convo.messages.length > 0) {
+                    setMessages(convo.messages as Message[]);
+                } else {
+                    setMessages([createWelcomeMessage()]);
+                }
+            } catch {
+                if (isCancelled) return;
+                setMessages([createWelcomeMessage()]);
+            }
+        };
+
+        load();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [projectId, projectName]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -50,6 +83,11 @@ export function AgentChatPanel({ projectName = 'Project' }: AgentChatPanelProps)
         };
 
         setMessages((prev) => [...prev, userMessage]);
+        if (projectId) {
+            appendConversationMessage(projectId, userMessage).catch((err) => {
+                console.warn('[AgentChatPanel] Failed to persist user message:', err);
+            });
+        }
         setInput('');
 
         const assistantMessage: Message = {
@@ -61,7 +99,19 @@ export function AgentChatPanel({ projectName = 'Project' }: AgentChatPanelProps)
 
         window.setTimeout(() => {
             setMessages((prev) => [...prev, assistantMessage]);
+            if (projectId) {
+                appendConversationMessage(projectId, assistantMessage).catch((err) => {
+                    console.warn('[AgentChatPanel] Failed to persist assistant message:', err);
+                });
+            }
         }, 300);
+    };
+
+    const handleClear = async () => {
+        if (projectId) {
+            await clearConversation(projectId);
+        }
+        setMessages([createWelcomeMessage()]);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -87,6 +137,13 @@ export function AgentChatPanel({ projectName = 'Project' }: AgentChatPanelProps)
                         Agent Chat
                     </span>
                 </div>
+                <button
+                    type="button"
+                    onClick={handleClear}
+                    className="text-xs text-slate-500 hover:text-slate-200 transition-colors"
+                >
+                    Clear
+                </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">

@@ -24,6 +24,32 @@ export {
     type LayoutConfig,
 } from './project-store';
 
+// Story 5-3: Conversation Store
+export {
+    getConversation,
+    saveConversation,
+    appendConversationMessage,
+    appendToolResult,
+    clearConversation,
+    listRecentConversations,
+    type ConversationMessage,
+    type ConversationMessageRole,
+    type ConversationState,
+    type ToolResultRecord,
+} from './conversation-store';
+
+// Story 5-4: IDE State Store
+export {
+    getIdeState,
+    saveIdeState,
+    updateIdeState,
+    clearIdeState,
+    listRecentIdeStates,
+    type IdeState,
+    type IdeStatePatch,
+    type TerminalTab,
+} from './ide-state-store';
+
 // Story 3-8: Workspace Context
 export {
     WorkspaceProvider,
