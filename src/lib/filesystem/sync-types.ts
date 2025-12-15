@@ -78,6 +78,14 @@ export interface SyncConfig {
      * Callback when sync completes (success or failure)
      */
     onComplete?: (result: SyncResult) => void;
+
+    /**
+     * Whether to pre-scan the local directory to compute an accurate file count
+     * for `sync:started` / `sync:progress` events.
+     *
+     * Note: this adds an additional directory traversal (list-only) before sync.
+     */
+    preScanFileCount?: boolean;
 }
 
 /**
@@ -151,6 +159,7 @@ export const DEFAULT_SYNC_CONFIG: SyncConfig = {
         '.env.local',
         '.env.*.local',
     ],
+    preScanFileCount: true,
 };
 
 /**

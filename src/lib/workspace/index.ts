@@ -60,3 +60,16 @@ export {
     type WorkspaceProviderProps,
     type SyncStatus,
 } from './WorkspaceContext';
+
+export {
+    fileSyncStatusStore,
+    fileSyncCountsStore,
+    setFileSyncPending,
+    setFileSyncSynced,
+    setFileSyncError,
+    clearFileSyncStatus,
+    clearAllFileSyncStatuses,
+    type FileSyncState,
+    type FileSyncStatus,
+    type FileSyncStatusMap,
+} from './file-sync-status-store';

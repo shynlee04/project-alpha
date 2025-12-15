@@ -96,6 +96,16 @@ describe('ProjectStore', () => {
             expect(result).toBe(true);
         });
 
+        it('should default autoSync to true when not provided', async () => {
+            const project = createTestProject({ autoSync: undefined });
+
+            const result = await saveProject(project);
+            expect(result).toBe(true);
+
+            const retrieved = await getProject(project.id);
+            expect(retrieved?.autoSync).toBe(true);
+        });
+
         it('should update existing project', async () => {
             const project = createTestProject();
             await saveProject(project);

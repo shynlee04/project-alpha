@@ -53,6 +53,7 @@ export interface FileTreeItemProps {
     onSelect: (node: TreeNode) => void;
     onToggle: (node: TreeNode) => void;
     onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
+    onRetryFile?: (path: string) => void;
 }
 
 /**

@@ -5,6 +5,8 @@
  * This module provides file system operations for the IDE:
  * - LocalFSAdapter: File System Access API wrapper for local file operations
  * - SyncManager: Bidirectional sync between Local FS and WebContainers
+ * - Path utilities: Path validation and parsing
+ * - Error classes: Structured error handling
  * 
  * @example
  * ```ts
@@ -13,6 +15,7 @@
  *   SyncManager,
  *   createSyncManager,
  *   SyncError,
+ *   validatePath,
  * } from '@/lib/filesystem';
  * 
  * const adapter = new LocalFSAdapter();
@@ -26,15 +29,17 @@
  * ```
  */
 
-// LocalFSAdapter exports
-export {
-    LocalFSAdapter,
-    FileSystemError,
-    PermissionDeniedError,
-    type DirectoryEntry,
-    type FileReadResult,
-    type FileReadBinaryResult,
-} from './local-fs-adapter';
+// Error classes (standalone exports for direct import)
+export { FileSystemError, PermissionDeniedError } from './fs-errors';
+
+// Type definitions (standalone exports for direct import)
+export type { DirectoryEntry, FileReadResult, FileReadBinaryResult } from './fs-types';
+
+// Path utilities
+export { validatePath, parsePathSegments } from './path-utils';
+
+// LocalFSAdapter exports (also re-exports types and errors for convenience)
+export { LocalFSAdapter, localFS } from './local-fs-adapter';
 
 // SyncManager exports
 export {

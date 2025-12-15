@@ -47,6 +47,7 @@ export interface ProjectMetadata {
     fsaHandle: FileSystemDirectoryHandle;
     /** Last time project was opened */
     lastOpened: Date;
+    autoSync?: boolean;
     /** Optional layout state for IDE restoration */
     layoutState?: LayoutConfig;
 }
@@ -105,6 +106,7 @@ async function migrateLegacyProjectsIfNeeded(
                 tx.store.put({
                     ...project,
                     lastOpened: new Date(project.lastOpened),
+                    autoSync: project.autoSync ?? true,
                 })
             )
         );
@@ -182,6 +184,7 @@ export async function saveProject(project: ProjectMetadata): Promise<boolean> {
         const projectToSave = {
             ...project,
             lastOpened: new Date(project.lastOpened),
+            autoSync: project.autoSync ?? true,
         };
         await db.put(STORE_NAME, projectToSave);
         console.log('[ProjectStore] Project saved:', project.id, project.name);

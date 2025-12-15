@@ -1,6 +1,8 @@
 /**
  * @fileoverview FileTree Component
- * Main file tree component for displaying and navigating project structure
+ * @module components/ide/FileTree
+ * 
+ * Main file tree component for displaying and navigating project structure.
  *
  * Features:
  * - Hierarchical display of files and folders
@@ -9,51 +11,75 @@
  * - Context menu for CRUD operations
  * - Keyboard navigation
  * - Selection state
+ * - Sync status integration
+ * 
+ * @example
+ * ```tsx
+ * <FileTree
+ *   selectedPath={selectedFilePath}
+ *   onFileSelect={handleFileSelect}
+ *   refreshKey={fileTreeRefreshKey}
+ * />
+ * ```
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { FolderOpen, AlertCircle } from 'lucide-react'
-import { FileTreeItemList } from './FileTreeItem'
-import { ContextMenu } from './ContextMenu'
-import { SyncStatusIndicator } from '../SyncStatusIndicator'
-import { useWorkspace } from '../../../lib/workspace'
+import React, { useEffect, useCallback, useRef } from 'react';
+import { useStore } from '@tanstack/react-store';
+import { FolderOpen, AlertCircle } from 'lucide-react';
+
+// Internal components
+import { FileTreeItemList } from './FileTreeItem';
+import { ContextMenu } from './ContextMenu';
+import { SyncStatusIndicator } from '../SyncStatusIndicator';
+
+// Hooks
 import {
-  LocalFSAdapter,
-  FileSystemError,
-  PermissionDeniedError,
-  type DirectoryEntry,
-} from '../../../lib/filesystem/local-fs-adapter'
-import type { TreeNode, ContextMenuState, ContextMenuAction } from './types'
+  useFileTreeState,
+  useFileTreeActions,
+  useContextMenuActions,
+  useKeyboardNavigation,
+} from './hooks';
+
+// State and types
+import { fileSyncCountsStore, useWorkspace } from '../../../lib/workspace';
+import type { TreeNode } from './types';
+
+// ============================================================================
+// Types
+// ============================================================================
 
 /**
- * Build a TreeNode from a DirectoryEntry
+ * Props for the FileTree component.
+ * 
+ * @interface FileTreeProps
  */
-function buildTreeNode(entry: DirectoryEntry, parentPath: string): TreeNode {
-  const path = parentPath ? `${parentPath}/${entry.name}` : entry.name
-  return {
-    name: entry.name,
-    path,
-    type: entry.type,
-    handle: entry.handle,
-    expanded: false,
-    loading: false,
-    children: entry.type === 'directory' ? undefined : undefined,
-  }
-}
-
 interface FileTreeProps {
   /** Currently selected file path */
-  selectedPath?: string
+  selectedPath?: string;
   /** Callback when a file is selected */
-  onFileSelect: (path: string, handle: FileSystemFileHandle) => void
-  /** Key to trigger refresh */
-  refreshKey?: number
-  /** Optional class name */
-  className?: string
+  onFileSelect: (path: string, handle: FileSystemFileHandle) => void;
+  /** Key to trigger refresh (increment to refresh tree) */
+  refreshKey?: number;
+  /** Optional class name for styling */
+  className?: string;
 }
 
+// ============================================================================
+// Component
+// ============================================================================
+
 /**
- * FileTree - Main file tree component
+ * FileTree - Main file tree component.
+ * 
+ * Displays a hierarchical view of the project filesystem with:
+ * - Folder expand/collapse
+ * - File selection
+ * - Context menu operations
+ * - Keyboard navigation
+ * - Sync status indicators
+ * 
+ * @param props - Component props
+ * @returns FileTree JSX element
  */
 export function FileTree({
   onFileSelect,
@@ -61,7 +87,7 @@ export function FileTree({
   className = '',
   refreshKey,
 }: FileTreeProps): React.JSX.Element {
-  // Story 3-6: Added sync state for SyncStatusIndicator
+  // Workspace context
   const {
     directoryHandle,
     syncStatus,
@@ -69,460 +95,160 @@ export function FileTree({
     lastSyncTime,
     syncError,
     syncNow,
-  } = useWorkspace()
+    localAdapterRef,
+    syncManagerRef,
+  } = useWorkspace();
 
-  const [rootNodes, setRootNodes] = useState<TreeNode[]>([])
-  const [focusedPath, setFocusedPath] = useState<string | undefined>()
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
-    visible: false,
-    x: 0,
-    y: 0,
-    targetNode: null,
-  })
+  // Sync counts for status display
+  const fileSyncCounts = useStore(fileSyncCountsStore, (state) => state);
 
-  const treeRef = useRef<HTMLDivElement>(null)
-  const adapterRef = useRef<LocalFSAdapter | null>(null)
+  // Container ref for focus management
+  const treeRef = useRef<HTMLDivElement>(null);
 
-  // Get or create adapter with the directory handle
-  const getAdapter = useCallback(() => {
-    if (!adapterRef.current) {
-      adapterRef.current = new LocalFSAdapter()
-    }
-    return adapterRef.current
-  }, [])
+  // ============================================================================
+  // State Management
+  // ============================================================================
 
-  // Load root directory contents
-  const loadRootDirectory = useCallback(async () => {
-    if (!directoryHandle) {
-      setRootNodes([])
-      setError(null)
-      return
-    }
+  const {
+    rootNodes,
+    setRootNodes,
+    focusedPath,
+    setFocusedPath,
+    error,
+    setError,
+    isLoading,
+    setIsLoading,
+    contextMenu,
+    setContextMenu,
+    getAdapter,
+  } = useFileTreeState({ directoryHandle, refreshKey });
 
-    setIsLoading(true)
-    setError(null)
+  // ============================================================================
+  // Actions
+  // ============================================================================
 
-    try {
-      const adapter = getAdapter()
-      // Set the directory handle on the adapter
-      ;(adapter as any).directoryHandle = directoryHandle
+  const {
+    loadRootDirectory,
+    handleToggle,
+    handleRetryFile,
+  } = useFileTreeActions({
+    directoryHandle,
+    getAdapter,
+    setRootNodes,
+    setError,
+    setIsLoading,
+    localAdapterRef,
+    syncManagerRef,
+  });
 
-      const entries = await adapter.listDirectory('')
-      const nodes = entries.map((entry) => buildTreeNode(entry, ''))
-      setRootNodes(nodes)
-    } catch (err) {
-      if (err instanceof PermissionDeniedError) {
-        setError('Permission required to access this folder.')
-      } else if (err instanceof FileSystemError) {
-        setError(`Error loading directory: ${err.message}`)
-      } else {
-        setError('An unexpected error occurred.')
-        console.error('FileTree error:', err)
-      }
-      setRootNodes([])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [directoryHandle, getAdapter])
-
-  // Load directory children (lazy loading)
-  const loadChildren = useCallback(
-    async (node: TreeNode): Promise<TreeNode[]> => {
-      if (!directoryHandle) return []
-
-      try {
-        const adapter = getAdapter()
-        ;(adapter as any).directoryHandle = directoryHandle
-
-        const entries = await adapter.listDirectory(node.path)
-        return entries.map((entry) => buildTreeNode(entry, node.path))
-      } catch (err) {
-        console.error('Error loading children:', err)
-        return []
-      }
-    },
-    [directoryHandle, getAdapter],
-  )
-
-  // Effect to load root when directory handle changes or refresh is triggered
-  useEffect(() => {
-    loadRootDirectory()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadRootDirectory, refreshKey])
-
-  // Toggle folder expand/collapse
-  const handleToggle = useCallback(
-    async (node: TreeNode) => {
-      if (node.type !== 'directory') return
-
-      const updateNode = (
-        nodes: TreeNode[],
-        targetPath: string,
-        updater: (n: TreeNode) => TreeNode,
-      ): TreeNode[] => {
-        return nodes.map((n) => {
-          if (n.path === targetPath) {
-            return updater(n)
-          }
-          if (
-            n.children &&
-            n.path !== targetPath &&
-            targetPath.startsWith(n.path + '/')
-          ) {
-            return {
-              ...n,
-              children: updateNode(n.children, targetPath, updater),
-            }
-          }
-          return n
-        })
-      }
-
-      if (node.expanded) {
-        // Collapse
-        setRootNodes((prev) =>
-          updateNode(prev, node.path, (n) => ({
-            ...n,
-            expanded: false,
-          })),
-        )
-      } else {
-        // Expand - load children if needed
-        if (!node.children) {
-          // Set loading
-          setRootNodes((prev) =>
-            updateNode(prev, node.path, (n) => ({
-              ...n,
-              loading: true,
-            })),
-          )
-
-          const children = await loadChildren(node)
-
-          setRootNodes((prev) =>
-            updateNode(prev, node.path, (n) => ({
-              ...n,
-              loading: false,
-              expanded: true,
-              children,
-            })),
-          )
-        } else {
-          setRootNodes((prev) =>
-            updateNode(prev, node.path, (n) => ({
-              ...n,
-              expanded: true,
-            })),
-          )
-        }
-      }
-    },
-    [loadChildren],
-  )
-
-  // Handle file selection
+  // File selection handler
   const handleSelect = useCallback(
     (node: TreeNode) => {
       if (node.type === 'file' && onFileSelect) {
-        onFileSelect(node.path, node.handle as FileSystemFileHandle)
+        onFileSelect(node.path, node.handle as FileSystemFileHandle);
       }
-      setFocusedPath(node.path)
+      setFocusedPath(node.path);
     },
-    [onFileSelect],
-  )
+    [onFileSelect, setFocusedPath],
+  );
 
-  // Handle context menu
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent, node: TreeNode) => {
-      event.preventDefault()
-      setContextMenu({
-        visible: true,
-        x: event.clientX,
-        y: event.clientY,
-        targetNode: node,
-      })
-    },
-    [],
-  )
+  // ============================================================================
+  // Context Menu
+  // ============================================================================
 
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => ({ ...prev, visible: false, targetNode: null }))
-  }, [])
+  const {
+    handleContextMenu,
+    closeContextMenu,
+    handleContextMenuAction,
+  } = useContextMenuActions({
+    contextMenu,
+    setContextMenu,
+    directoryHandle,
+    getAdapter,
+    handleToggle,
+    loadRootDirectory,
+  });
 
-  // Handle context menu actions
-  const handleContextMenuAction = useCallback(
-    async (action: ContextMenuAction) => {
-      const targetNode = contextMenu.targetNode
-      if (!targetNode || !directoryHandle) return
+  // ============================================================================
+  // Keyboard Navigation
+  // ============================================================================
 
-      const adapter = getAdapter()
-      ;(adapter as any).directoryHandle = directoryHandle
+  const { handleKeyDown } = useKeyboardNavigation({
+    rootNodes,
+    focusedPath,
+    setFocusedPath,
+    handleToggle,
+    handleSelect,
+  });
 
-      try {
-        switch (action) {
-          case 'new-file': {
-            const name = prompt('Enter file name:')
-            if (name) {
-              const path =
-                targetNode.type === 'directory'
-                  ? `${targetNode.path}/${name}`
-                  : name
-              await adapter.createFile(path, '')
-              // Refresh the parent directory
-              if (targetNode.type === 'directory') {
-                handleToggle({
-                  ...targetNode,
-                  expanded: false,
-                  children: undefined,
-                })
-                setTimeout(
-                  () =>
-                    handleToggle({
-                      ...targetNode,
-                      expanded: false,
-                      children: undefined,
-                    }),
-                  100,
-                )
-              } else {
-                loadRootDirectory()
-              }
-            }
-            break
-          }
-          case 'new-folder': {
-            const name = prompt('Enter folder name:')
-            if (name) {
-              const path =
-                targetNode.type === 'directory'
-                  ? `${targetNode.path}/${name}`
-                  : name
-              await adapter.createDirectory(path)
-              // Refresh
-              if (targetNode.type === 'directory') {
-                handleToggle({
-                  ...targetNode,
-                  expanded: false,
-                  children: undefined,
-                })
-                setTimeout(
-                  () =>
-                    handleToggle({
-                      ...targetNode,
-                      expanded: false,
-                      children: undefined,
-                    }),
-                  100,
-                )
-              } else {
-                loadRootDirectory()
-              }
-            }
-            break
-          }
-          case 'rename': {
-            const newName = prompt('Enter new name:', targetNode.name)
-            if (newName && newName !== targetNode.name) {
-              const parentPath = targetNode.path.includes('/')
-                ? targetNode.path.substring(0, targetNode.path.lastIndexOf('/'))
-                : ''
-              const newPath = parentPath ? `${parentPath}/${newName}` : newName
-              await adapter.rename(targetNode.path, newPath)
-              loadRootDirectory()
-            }
-            break
-          }
-          case 'delete': {
-            const confirmed = confirm(
-              `Are you sure you want to delete "${targetNode.name}"?`,
-            )
-            if (confirmed) {
-              if (targetNode.type === 'directory') {
-                await adapter.deleteDirectory(targetNode.path)
-              } else {
-                await adapter.deleteFile(targetNode.path)
-              }
-              loadRootDirectory()
-            }
-            break
-          }
-        }
-      } catch (err) {
-        console.error('Context menu action error:', err)
-        alert(
-          `Failed to ${action}: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        )
-      }
-    },
-    [
-      contextMenu.targetNode,
-      directoryHandle,
-      getAdapter,
-      handleToggle,
-      loadRootDirectory,
-    ],
-  )
+  // ============================================================================
+  // Effects
+  // ============================================================================
 
-  // Keyboard navigation
-  const getAllVisiblePaths = useCallback((): string[] => {
-    const paths: string[] = []
-    const traverse = (nodes: TreeNode[]) => {
-      for (const node of nodes) {
-        paths.push(node.path)
-        if (node.type === 'directory' && node.expanded && node.children) {
-          traverse(node.children)
-        }
-      }
-    }
+  // Load root when directory handle changes or refresh is triggered
+  useEffect(() => {
+    loadRootDirectory();
+  }, [loadRootDirectory, refreshKey]);
 
-    // Sort: folders first, then files
-    const sortedNodes = [...rootNodes].sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
+  // ============================================================================
+  // Render States
+  // ============================================================================
 
-    traverse(sortedNodes)
-    return paths
-  }, [rootNodes])
-
-  const findNodeByPath = useCallback(
-    (path: string): TreeNode | undefined => {
-      const find = (nodes: TreeNode[]): TreeNode | undefined => {
-        for (const node of nodes) {
-          if (node.path === path) return node
-          if (node.children) {
-            const found = find(node.children)
-            if (found) return found
-          }
-        }
-        return undefined
-      }
-      return find(rootNodes)
-    },
-    [rootNodes],
-  )
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      const paths = getAllVisiblePaths()
-      if (paths.length === 0) return
-
-      const currentIndex = focusedPath ? paths.indexOf(focusedPath) : -1
-      const currentNode = focusedPath ? findNodeByPath(focusedPath) : undefined
-
-      switch (e.key) {
-        case 'ArrowDown': {
-          e.preventDefault()
-          const nextIndex =
-            currentIndex < paths.length - 1 ? currentIndex + 1 : 0
-          setFocusedPath(paths[nextIndex])
-          break
-        }
-        case 'ArrowUp': {
-          e.preventDefault()
-          const prevIndex =
-            currentIndex > 0 ? currentIndex - 1 : paths.length - 1
-          setFocusedPath(paths[prevIndex])
-          break
-        }
-        case 'ArrowRight': {
-          e.preventDefault()
-          if (currentNode?.type === 'directory' && !currentNode.expanded) {
-            handleToggle(currentNode)
-          } else if (
-            currentNode?.type === 'directory' &&
-            currentNode.expanded &&
-            currentNode.children?.length
-          ) {
-            // Move to first child
-            const sortedChildren = [...currentNode.children].sort((a, b) => {
-              if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
-              return a.name.localeCompare(b.name)
-            })
-            setFocusedPath(sortedChildren[0]?.path)
-          }
-          break
-        }
-        case 'ArrowLeft': {
-          e.preventDefault()
-          if (currentNode?.type === 'directory' && currentNode.expanded) {
-            handleToggle(currentNode)
-          } else if (focusedPath?.includes('/')) {
-            // Move to parent
-            const parentPath = focusedPath.substring(
-              0,
-              focusedPath.lastIndexOf('/'),
-            )
-            setFocusedPath(parentPath || paths[0])
-          }
-          break
-        }
-        case 'Enter': {
-          e.preventDefault()
-          if (currentNode) {
-            if (currentNode.type === 'directory') {
-              handleToggle(currentNode)
-            } else {
-              handleSelect(currentNode)
-            }
-          }
-          break
-        }
-      }
-    },
-    [
-      focusedPath,
-      getAllVisiblePaths,
-      findNodeByPath,
-      handleToggle,
-      handleSelect,
-    ],
-  )
-
-  // Render empty state when no directory handle
+  // Empty state - no directory
   if (!directoryHandle) {
     return (
-      <div
-        className={`h-full flex flex-col items-center justify-center text-slate-500 p-4 ${className}`}
-      >
+      <div className={`h-full flex flex-col items-center justify-center text-slate-500 p-4 ${className}`}>
         <FolderOpen size={32} className="mb-2 text-slate-600" />
         <p className="text-sm text-center">No folder selected</p>
         <p className="text-xs text-slate-600 text-center mt-1">
           Open a folder to view files
         </p>
       </div>
-    )
+    );
   }
 
-  // Render error state
+  // Error state
   if (error) {
     return (
-      <div
-        className={`h-full flex flex-col items-center justify-center text-red-400 p-4 ${className}`}
-      >
+      <div className={`h-full flex flex-col items-center justify-center text-red-400 p-4 ${className}`}>
         <AlertCircle size={32} className="mb-2" />
         <p className="text-sm text-center">{error}</p>
       </div>
-    )
+    );
   }
 
-  // Render loading state
+  // Loading state
   if (isLoading) {
     return (
-      <div
-        className={`h-full flex items-center justify-center text-slate-500 ${className}`}
-      >
+      <div className={`h-full flex items-center justify-center text-slate-500 ${className}`}>
         <p className="text-sm">Loading...</p>
       </div>
-    )
+    );
   }
+
+  // ============================================================================
+  // Main Render
+  // ============================================================================
 
   return (
     <div className={`h-full flex flex-col ${className}`}>
-      {/* Story 3-6: Sync Status Header */}
-      <div className="h-7 px-3 flex items-center justify-end border-b border-slate-800/30 bg-slate-900/30 shrink-0">
+      {/* Sync Status Header */}
+      <div className="h-7 px-3 flex items-center justify-between border-b border-slate-800/30 bg-slate-900/30 shrink-0">
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          {fileSyncCounts.total > 0 && (
+            <>
+              <span title="Pending files" className="text-amber-400">
+                {fileSyncCounts.pending} pending
+              </span>
+              <span title="Files with errors" className="text-red-400">
+                {fileSyncCounts.error} error
+              </span>
+              <span title="Synced files" className="text-emerald-400">
+                {fileSyncCounts.synced} synced
+              </span>
+            </>
+          )}
+        </div>
         <SyncStatusIndicator
           status={syncStatus}
           progress={syncProgress}
@@ -531,6 +257,7 @@ export function FileTree({
           onRetry={syncNow}
         />
       </div>
+
       {/* File Tree Content */}
       <div
         ref={treeRef}
@@ -549,18 +276,19 @@ export function FileTree({
           onSelect={handleSelect}
           onToggle={handleToggle}
           onContextMenu={handleContextMenu}
-        />
-
-        {/* Context Menu */}
-        <ContextMenu
-          visible={contextMenu.visible}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          targetNode={contextMenu.targetNode}
-          onAction={handleContextMenuAction}
-          onClose={closeContextMenu}
+          onRetryFile={handleRetryFile}
         />
       </div>
+
+      {/* Context Menu */}
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        targetNode={contextMenu.targetNode}
+        onAction={handleContextMenuAction}
+        onClose={closeContextMenu}
+      />
     </div>
-  )
+  );
 }

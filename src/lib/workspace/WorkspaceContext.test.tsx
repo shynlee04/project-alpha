@@ -32,9 +32,15 @@ vi.mock('../filesystem', () => ({
 
         setDirectoryHandle = vi.fn();
     },
-    SyncManager: vi.fn().mockImplementation(() => ({
-        syncToWebContainer: vi.fn().mockResolvedValue({ syncedFiles: [], failedFiles: [] }),
-    })),
+    SyncManager: vi.fn().mockImplementation(function (this: any) {
+        this.syncToWebContainer = vi.fn().mockResolvedValue({
+            success: true,
+            totalFiles: 0,
+            syncedFiles: 0,
+            failedFiles: [],
+            duration: 0,
+        });
+    }),
 }));
 
 vi.mock('../filesystem/permission-lifecycle', () => ({
@@ -126,6 +132,7 @@ describe('WorkspaceContext', () => {
             expect(result.current.syncProgress).toBeNull();
             expect(result.current.lastSyncTime).toBeNull();
             expect(result.current.syncError).toBeNull();
+            expect(result.current.autoSync).toBe(true);
             expect(result.current.isOpeningFolder).toBe(false);
         });
 
@@ -137,6 +144,7 @@ describe('WorkspaceContext', () => {
                 folderPath: 'my-project',
                 fsaHandle: mockHandle,
                 lastOpened: new Date('2025-01-01'),
+                autoSync: false,
             };
 
             const { result } = renderHook(() => useWorkspace(), {
@@ -149,9 +157,12 @@ describe('WorkspaceContext', () => {
             expect(result.current.projectMetadata).toEqual(initialProject);
             expect(result.current.directoryHandle).toBe(mockHandle);
             expect(result.current.permissionState).toBe('prompt'); // Initially prompt until effect runs
+            expect(result.current.autoSync).toBe(false);
         });
 
         it('should trigger sync if permission is already granted', async () => {
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
             // Mock SyncManager to verify instantiation
             const { SyncManager } = await import('../filesystem');
             const { getPermissionState } = await import('../filesystem/permission-lifecycle');
@@ -180,6 +191,49 @@ describe('WorkspaceContext', () => {
                 expect(getPermissionState).toHaveBeenCalled();
                 expect(SyncManager).toHaveBeenCalled();
             });
+
+            consoleError.mockRestore();
+        });
+
+        it('should not run full sync on mount when autoSync is disabled', async () => {
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            const { SyncManager } = await import('../filesystem');
+            const { getPermissionState } = await import('../filesystem/permission-lifecycle');
+
+            (getPermissionState as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue(
+                'granted'
+            );
+
+            const mockHandle = createMockHandle('my-project');
+            const initialProject: ProjectMetadata = {
+                id: 'project-autosync-off',
+                name: 'My Project',
+                folderPath: 'my-project',
+                fsaHandle: mockHandle,
+                lastOpened: new Date(),
+                autoSync: false,
+            };
+
+            const { result } = renderHook(() => useWorkspace(), {
+                wrapper: createWrapper({
+                    projectId: 'project-autosync-off',
+                    initialProject,
+                }),
+            });
+
+            await waitFor(() => {
+                expect(getPermissionState).toHaveBeenCalled();
+                expect(SyncManager).toHaveBeenCalled();
+            });
+
+            expect(result.current.autoSync).toBe(false);
+            expect(result.current.syncStatus).toBe('idle');
+            expect(result.current.lastSyncTime).toBeNull();
+            expect(result.current.syncProgress).toBeNull();
+            expect(result.current.syncManagerRef.current).not.toBeNull();
+
+            consoleError.mockRestore();
         });
     });
 
@@ -195,6 +249,39 @@ describe('WorkspaceContext', () => {
                 });
 
                 expect(mockNavigate).toHaveBeenCalledWith({ to: '/' });
+            });
+        });
+
+        describe('setAutoSync', () => {
+            it('should update autoSync state and persist to ProjectStore', async () => {
+                const mockHandle = createMockHandle('my-project');
+                const initialProject: ProjectMetadata = {
+                    id: 'project-1',
+                    name: 'My Project',
+                    folderPath: 'my-project',
+                    fsaHandle: mockHandle,
+                    lastOpened: new Date('2025-01-01'),
+                    autoSync: true,
+                };
+
+                const { result } = renderHook(() => useWorkspace(), {
+                    wrapper: createWrapper({
+                        projectId: 'project-1',
+                        initialProject,
+                    }),
+                });
+
+                const { saveProject } = await import('./project-store');
+
+                await act(async () => {
+                    await result.current.setAutoSync(false);
+                });
+
+                expect(result.current.autoSync).toBe(false);
+                expect(saveProject as unknown as { mock: unknown }).toHaveBeenCalled();
+                expect((saveProject as unknown as { mock: { calls: any[][] } }).mock.calls[0][0]).toEqual(
+                    expect.objectContaining({ id: 'project-1', autoSync: false })
+                );
             });
         });
 

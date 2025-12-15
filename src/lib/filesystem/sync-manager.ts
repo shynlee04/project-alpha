@@ -33,17 +33,17 @@
  * ```
  */
 
-import { LocalFSAdapter, type DirectoryEntry } from './local-fs-adapter';
+import type { LocalFSAdapter } from './local-fs-adapter';
 import { boot, mount, getFileSystem, isBooted } from '../webcontainer';
-import type { FileSystemTree } from '@webcontainer/api';
+import type { WorkspaceEventEmitter } from '../events';
 import {
     type SyncConfig,
     type SyncResult,
     type SyncStatus,
     SyncError,
     DEFAULT_SYNC_CONFIG,
-    BINARY_EXTENSIONS,
 } from './sync-types';
+import { countFilesToSync, buildFileSystemTree } from './sync-operations';
 
 // Re-export types for convenience
 export { SyncError } from './sync-types';
@@ -72,10 +72,16 @@ export class SyncManager {
     private localAdapter: LocalFSAdapter;
     private config: SyncConfig;
     private _status: SyncStatus = 'idle';
+    private eventBus?: WorkspaceEventEmitter;
 
-    constructor(localAdapter: LocalFSAdapter, config: Partial<SyncConfig> = {}) {
+    constructor(
+        localAdapter: LocalFSAdapter,
+        config: Partial<SyncConfig> = {},
+        eventBus?: WorkspaceEventEmitter
+    ) {
         this.localAdapter = localAdapter;
         this.config = { ...DEFAULT_SYNC_CONFIG, ...config };
+        this.eventBus = eventBus;
     }
 
     /**
@@ -93,18 +99,19 @@ export class SyncManager {
      * 
      * @returns Promise resolving to SyncResult with sync statistics
      * @throws {SyncError} If sync fails critically (WebContainer not booted, mount fails)
-     * 
-     * @example
-     * ```ts
-     * const result = await syncManager.syncToWebContainer();
-     * console.log(`Synced ${result.syncedFiles}/${result.totalFiles} files`);
-     * console.log(`Duration: ${result.duration}ms`);
-     * if (result.failedFiles.length > 0) {
-     *   console.warn('Failed files:', result.failedFiles);
-     * }
-     * ```
      */
     async syncToWebContainer(): Promise<SyncResult> {
+        if (this._status === 'syncing') {
+            console.warn('[SyncManager] Sync already in progress, skipping request');
+            return {
+                success: false,
+                totalFiles: 0,
+                syncedFiles: 0,
+                failedFiles: [],
+                duration: 0,
+            };
+        }
+
         this._status = 'syncing';
         const startTime = performance.now();
 
@@ -119,27 +126,42 @@ export class SyncManager {
         try {
             // Ensure WebContainer is booted
             if (!isBooted()) {
-                console.log('[SyncManager] Booting WebContainer...');
                 await boot();
             }
 
-            console.log('[SyncManager] Starting sync: Local FS → WebContainers');
+            const totalFileCount = this.config.preScanFileCount
+                ? await countFilesToSync(
+                    this.localAdapter,
+                    '',
+                    this.config.excludePatterns,
+                    this.config.onError
+                )
+                : 0;
+
+            this.eventBus?.emit('sync:started', {
+                fileCount: totalFileCount,
+                direction: 'to-wc',
+            });
+
+            const processedRef = { filesProcessed: 0 };
 
             // Build file tree from local FS
-            const tree = await this.buildFileSystemTree('', result);
-
-            // Count entries in tree for logging
-            const entryCount = this.countTreeEntries(tree);
-            console.log(`[SyncManager] Built file tree with ${entryCount} entries`);
+            const tree = await buildFileSystemTree(
+                {
+                    adapter: this.localAdapter,
+                    config: this.config,
+                    eventBus: this.eventBus,
+                },
+                '',
+                result,
+                totalFileCount,
+                processedRef
+            );
 
             // Mount to WebContainer
-            console.log('[SyncManager] Mounting files to WebContainer...');
             await mount(tree);
 
             result.duration = Math.round(performance.now() - startTime);
-            console.log(
-                `[SyncManager] Sync complete: ${result.syncedFiles}/${result.totalFiles} files in ${result.duration}ms`
-            );
 
             // Warn if we exceeded performance target
             if (result.totalFiles >= 100 && result.duration > 3000) {
@@ -149,6 +171,13 @@ export class SyncManager {
             }
 
             this._status = 'idle';
+
+            this.eventBus?.emit('sync:completed', {
+                success: result.success,
+                timestamp: new Date(),
+                filesProcessed: processedRef.filesProcessed,
+            });
+
             this.config.onComplete?.(result);
         } catch (error) {
             result.success = false;
@@ -163,6 +192,12 @@ export class SyncManager {
             );
 
             console.error('[SyncManager] Sync failed:', syncError);
+
+            this.eventBus?.emit('sync:error', {
+                error: syncError,
+                file: syncError.filePath,
+            });
+
             this.config.onError?.(syncError);
             this.config.onComplete?.(result);
 
@@ -181,14 +216,14 @@ export class SyncManager {
      * @param path - Relative path to the file
      * @param content - File content as string
      * @throws {SyncError} If write fails
-     * 
-     * @example
-     * ```ts
-     * await syncManager.writeFile('src/index.ts', 'export default {};');
-     * ```
      */
     async writeFile(path: string, content: string): Promise<void> {
         const startTime = performance.now();
+
+        this.eventBus?.emit('sync:started', {
+            fileCount: 1,
+            direction: 'to-wc',
+        });
 
         try {
             // Write to local FS first (source of truth)
@@ -213,7 +248,6 @@ export class SyncManager {
             }
 
             const duration = Math.round(performance.now() - startTime);
-            console.log(`[SyncManager] Dual write completed: ${path} in ${duration}ms`);
 
             // Warn if we exceeded performance target
             if (duration > 500) {
@@ -221,6 +255,18 @@ export class SyncManager {
                     `[SyncManager] Write exceeded 500ms target: ${path} took ${duration}ms`
                 );
             }
+
+            this.eventBus?.emit('sync:progress', {
+                current: 1,
+                total: 1,
+                currentFile: path,
+            });
+
+            this.eventBus?.emit('sync:completed', {
+                success: true,
+                timestamp: new Date(),
+                filesProcessed: 1,
+            });
         } catch (error) {
             const syncError = new SyncError(
                 `Failed to write file: ${path}`,
@@ -228,6 +274,12 @@ export class SyncManager {
                 path,
                 error
             );
+
+            this.eventBus?.emit('sync:error', {
+                error: syncError,
+                file: path,
+            });
+
             this.config.onError?.(syncError);
             throw syncError;
         }
@@ -240,6 +292,11 @@ export class SyncManager {
      * @throws {SyncError} If delete fails
      */
     async deleteFile(path: string): Promise<void> {
+        this.eventBus?.emit('sync:started', {
+            fileCount: 1,
+            direction: 'to-wc',
+        });
+
         try {
             // Delete from local FS first
             await this.localAdapter.deleteFile(path);
@@ -254,7 +311,11 @@ export class SyncManager {
                 }
             }
 
-            console.log(`[SyncManager] Dual delete completed: ${path}`);
+            this.eventBus?.emit('sync:completed', {
+                success: true,
+                timestamp: new Date(),
+                filesProcessed: 1,
+            });
         } catch (error) {
             const syncError = new SyncError(
                 `Failed to delete file: ${path}`,
@@ -262,6 +323,12 @@ export class SyncManager {
                 path,
                 error
             );
+
+            this.eventBus?.emit('sync:error', {
+                error: syncError,
+                file: path,
+            });
+
             this.config.onError?.(syncError);
             throw syncError;
         }
@@ -274,6 +341,11 @@ export class SyncManager {
      * @throws {SyncError} If create fails
      */
     async createDirectory(path: string): Promise<void> {
+        this.eventBus?.emit('sync:started', {
+            fileCount: 0,
+            direction: 'to-wc',
+        });
+
         try {
             // Create in local FS first
             await this.localAdapter.createDirectory(path);
@@ -284,7 +356,11 @@ export class SyncManager {
                 await fs.mkdir(path, { recursive: true });
             }
 
-            console.log(`[SyncManager] Dual mkdir completed: ${path}`);
+            this.eventBus?.emit('sync:completed', {
+                success: true,
+                timestamp: new Date(),
+                filesProcessed: 0,
+            });
         } catch (error) {
             const syncError = new SyncError(
                 `Failed to create directory: ${path}`,
@@ -292,6 +368,12 @@ export class SyncManager {
                 path,
                 error
             );
+
+            this.eventBus?.emit('sync:error', {
+                error: syncError,
+                file: path,
+            });
+
             this.config.onError?.(syncError);
             throw syncError;
         }
@@ -304,6 +386,11 @@ export class SyncManager {
      * @throws {SyncError} If delete fails
      */
     async deleteDirectory(path: string): Promise<void> {
+        this.eventBus?.emit('sync:started', {
+            fileCount: 0,
+            direction: 'to-wc',
+        });
+
         try {
             // Delete from local FS first
             await this.localAdapter.deleteDirectory(path);
@@ -318,7 +405,11 @@ export class SyncManager {
                 }
             }
 
-            console.log(`[SyncManager] Dual rmdir completed: ${path}`);
+            this.eventBus?.emit('sync:completed', {
+                success: true,
+                timestamp: new Date(),
+                filesProcessed: 0,
+            });
         } catch (error) {
             const syncError = new SyncError(
                 `Failed to delete directory: ${path}`,
@@ -326,6 +417,12 @@ export class SyncManager {
                 path,
                 error
             );
+
+            this.eventBus?.emit('sync:error', {
+                error: syncError,
+                file: path,
+            });
+
             this.config.onError?.(syncError);
             throw syncError;
         }
@@ -346,164 +443,6 @@ export class SyncManager {
     getExcludePatterns(): string[] {
         return [...this.config.excludePatterns];
     }
-
-    /**
-     * Build a FileSystemTree from the local directory
-     * 
-     * @param path - Current path being traversed
-     * @param result - SyncResult to update with progress
-     * @returns FileSystemTree for WebContainers mount
-     * @private
-     */
-    private async buildFileSystemTree(
-        path: string,
-        result: SyncResult
-    ): Promise<FileSystemTree> {
-        const tree: FileSystemTree = {};
-
-        let entries: DirectoryEntry[];
-        try {
-            entries = await this.localAdapter.listDirectory(path);
-        } catch (error) {
-            const syncError = new SyncError(
-                `Failed to list directory: ${path || '/'}`,
-                'FILE_READ_FAILED',
-                path || '/',
-                error
-            );
-            this.config.onError?.(syncError);
-            throw syncError;
-        }
-
-        for (const entry of entries) {
-            const entryPath = path ? `${path}/${entry.name}` : entry.name;
-
-            // Check exclusion patterns
-            if (this.isExcluded(entryPath, entry.name)) {
-                console.log(`[SyncManager] Excluded: ${entryPath}`);
-                continue;
-            }
-
-            if (entry.type === 'directory') {
-                // Recursively build subtree
-                try {
-                    tree[entry.name] = {
-                        directory: await this.buildFileSystemTree(entryPath, result),
-                    };
-                } catch (error) {
-                    // Directory read failed, but continue with other entries
-                    result.failedFiles.push(entryPath);
-                    console.warn(`[SyncManager] Failed to read directory: ${entryPath}`);
-                }
-            } else {
-                // Read file content
-                try {
-                    const content = await this.readFileContent(entryPath, entry.name);
-                    tree[entry.name] = { file: { contents: content } };
-                    result.syncedFiles++;
-                } catch (error) {
-                    result.failedFiles.push(entryPath);
-                    const syncError = new SyncError(
-                        `Failed to read file: ${entryPath}`,
-                        'FILE_READ_FAILED',
-                        entryPath,
-                        error
-                    );
-                    this.config.onError?.(syncError);
-                    console.warn(`[SyncManager] Failed to read file: ${entryPath}`);
-                }
-            }
-
-            result.totalFiles++;
-
-            // Report progress
-            this.config.onProgress?.({
-                totalFiles: result.totalFiles,
-                syncedFiles: result.syncedFiles,
-                currentFile: entryPath,
-                percentage: 0, // Can't calculate accurately without knowing total upfront
-            });
-        }
-
-        return tree;
-    }
-
-    /**
-     * Check if a path should be excluded from sync
-     * 
-     * @param path - Full relative path
-     * @param name - Just the file/directory name
-     * @returns true if should be excluded
-     * @private
-     */
-    private isExcluded(path: string, name: string): boolean {
-        return this.config.excludePatterns.some((pattern) => {
-            // Check if pattern contains glob wildcard
-            if (pattern.includes('*')) {
-                // Simple glob pattern matching
-                const regexPattern = pattern
-                    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // Escape regex special chars
-                    .replace(/\*/g, '.*'); // Replace * with .*
-                const regex = new RegExp(`^${regexPattern}$`, 'i');
-                return regex.test(name) || regex.test(path);
-            }
-
-            // Exact match on name or path
-            return name === pattern || path === pattern || path.startsWith(`${pattern}/`);
-        });
-    }
-
-    /**
-     * Read file content with appropriate encoding
-     * 
-     * @param path - Path to the file
-     * @param filename - Just the filename (for extension check)
-     * @returns File content as string or Uint8Array
-     * @private
-     */
-    private async readFileContent(
-        path: string,
-        filename: string
-    ): Promise<string | Uint8Array> {
-        if (this.isBinaryFile(filename)) {
-            const result = await this.localAdapter.readFile(path, { encoding: 'binary' });
-            return new Uint8Array(result.data);
-        }
-
-        const result = await this.localAdapter.readFile(path);
-        return result.content;
-    }
-
-    /**
-     * Check if a file should be read as binary
-     * 
-     * @param filename - The filename to check
-     * @returns true if file is binary
-     * @private
-     */
-    private isBinaryFile(filename: string): boolean {
-        const lowerName = filename.toLowerCase();
-        return BINARY_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
-    }
-
-    /**
-     * Count total entries in a FileSystemTree (for logging)
-     * 
-     * @param tree - The tree to count
-     * @returns Total number of files and directories
-     * @private
-     */
-    private countTreeEntries(tree: FileSystemTree): number {
-        let count = 0;
-        for (const key of Object.keys(tree)) {
-            count++;
-            const entry = tree[key];
-            if ('directory' in entry) {
-                count += this.countTreeEntries(entry.directory);
-            }
-        }
-        return count;
-    }
 }
 
 /**
@@ -514,18 +453,11 @@ export class SyncManager {
  * @param adapter - LocalFSAdapter instance with directory access
  * @param config - Optional configuration
  * @returns SyncManager instance
- * 
- * @example
- * ```ts
- * const syncManager = createSyncManager(adapter, {
- *   excludePatterns: ['.git', 'node_modules', 'build'],
- *   onProgress: (p) => updateProgressBar(p.percentage),
- * });
- * ```
  */
 export function createSyncManager(
     adapter: LocalFSAdapter,
-    config?: Partial<SyncConfig>
+    config?: Partial<SyncConfig>,
+    eventBus?: WorkspaceEventEmitter
 ): SyncManager {
-    return new SyncManager(adapter, config);
+    return new SyncManager(adapter, config, eventBus);
 }

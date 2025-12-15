@@ -1,12 +1,24 @@
 /**
  * @fileoverview FileTree Module Barrel Export
- * Exports all FileTree components and types
+ * Exports all FileTree components, hooks, and types
  */
 
 export { FileTree } from './FileTree';
 export { FileTreeItem, FileTreeItemList } from './FileTreeItem';
 export { FileIcon, getFileIconType, getIconColor, getIconComponent } from './icons';
 export { ContextMenu } from './ContextMenu';
+
+// Hooks
+export {
+    useFileTreeState,
+    useFileTreeActions,
+    useContextMenuActions,
+    useKeyboardNavigation,
+    buildTreeNode,
+    updateNodeByPath,
+} from './hooks';
+
+// Types
 export type {
     TreeNode,
     FileTreeProps,
@@ -15,3 +27,4 @@ export type {
     ContextMenuState,
     FileIconType
 } from './types';
+

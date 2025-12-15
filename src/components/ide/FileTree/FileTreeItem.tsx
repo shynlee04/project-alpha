@@ -3,10 +3,12 @@
  * Renders a single item in the file tree (file or folder)
  */
 
-import React from 'react';
-import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { useStore } from '@tanstack/react-store'
+import { ChevronRight, ChevronDown, Loader2, Check, Clock, AlertTriangle } from 'lucide-react';
 import { FileIcon } from './icons';
 import type { FileTreeItemProps } from './types';
+import { fileSyncStatusStore } from '../../../lib/workspace'
 
 /**
  * FileTreeItem - Renders a single file or folder in the tree
@@ -19,15 +21,21 @@ export function FileTreeItem({
     onSelect,
     onToggle,
     onContextMenu,
+    onRetryFile,
 }: FileTreeItemProps): React.JSX.Element {
+
     const isSelected = selectedPath === node.path;
     const isFocused = focusedPath === node.path;
     const isDirectory = node.type === 'directory';
     const isExpanded = node.expanded ?? false;
     const isLoading = node.loading ?? false;
 
-    // Indentation: 12px per depth level
-    const paddingLeft = 8 + depth * 12;
+    const [isErrorDetailsOpen, setIsErrorDetailsOpen] = useState(false)
+    const fileSyncStatus = useStore(fileSyncStatusStore, (map) => map.get(node.path))
+
+    const isError = !isDirectory && fileSyncStatus?.state === 'error'
+    const isPending = !isDirectory && fileSyncStatus?.state === 'pending'
+    const isSynced = !isDirectory && fileSyncStatus?.state === 'synced'
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -38,25 +46,9 @@ export function FileTreeItem({
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            if (isDirectory) {
-                onToggle(node);
-            } else {
-                onSelect(node);
-            }
-        } else if (e.key === 'ArrowRight' && isDirectory && !isExpanded) {
-            e.preventDefault();
-            onToggle(node);
-        } else if (e.key === 'ArrowLeft' && isDirectory && isExpanded) {
-            e.preventDefault();
-            onToggle(node);
-        }
-    };
-
     const handleContextMenuEvent = (e: React.MouseEvent) => {
         e.preventDefault();
+        e.stopPropagation();
         onContextMenu(e, node);
     };
 
@@ -66,41 +58,125 @@ export function FileTreeItem({
             aria-selected={isSelected}
             aria-expanded={isDirectory ? isExpanded : undefined}
             tabIndex={isFocused ? 0 : -1}
-            className={`
+            className="outline-none"
+            onClick={handleClick}
+            onContextMenu={handleContextMenuEvent}
+        >
+            <div
+                className={`
         flex items-center gap-1 h-7 cursor-pointer select-none
         text-sm text-slate-300 hover:bg-slate-800/50
         ${isSelected ? 'bg-cyan-500/20 text-cyan-200' : ''}
         ${isFocused ? 'outline outline-1 outline-cyan-500/50 outline-offset-[-1px]' : ''}
         transition-colors duration-75
       `}
-            style={{ paddingLeft: `${paddingLeft}px`, paddingRight: '8px' }}
-            onClick={handleClick}
-            onKeyDown={handleKeyDown}
-            onContextMenu={handleContextMenuEvent}
-        >
-            {/* Chevron for directories */}
-            <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                {isDirectory && (
-                    isLoading ? (
-                        <Loader2 size={12} className="text-slate-500 animate-spin" />
-                    ) : isExpanded ? (
-                        <ChevronDown size={12} className="text-slate-500" />
-                    ) : (
-                        <ChevronRight size={12} className="text-slate-500" />
-                    )
+            >
+                {/* Chevron for directories */}
+                <div className="w-4 h-4 flex items-center justify-center shrink-0">
+                    {isDirectory && (
+                        isLoading ? (
+                            <Loader2 size={12} className="text-slate-500 animate-spin" />
+                        ) : isExpanded ? (
+                            <ChevronDown size={12} className="text-slate-500" />
+                        ) : (
+                            <ChevronRight size={12} className="text-slate-500" />
+                        )
+                    )}
+                </div>
+
+                {/* File/Folder Icon */}
+                <FileIcon
+                    filename={node.name}
+                    isDirectory={isDirectory}
+                    isExpanded={isExpanded}
+                    size={16}
+                />
+
+                {/* Name */}
+                <span className="truncate">{node.name}</span>
+
+                {/* Per-file sync status */}
+                {!isDirectory && fileSyncStatus && (
+                    <div className="ml-auto flex items-center gap-1 shrink-0">
+                        {isSynced && (
+                            <span title="Synced">
+                                <Check size={14} className="text-emerald-400" />
+                            </span>
+                        )}
+
+                        {isPending && (
+                            <span title="Pending">
+                                <Clock size={14} className="text-amber-400" />
+                            </span>
+                        )}
+
+                        {isError && (
+                            <button
+                                type="button"
+                                className="text-red-400 hover:text-red-300 transition-colors"
+                                title={fileSyncStatus.errorMessage || 'Sync error'}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setIsErrorDetailsOpen((prev) => !prev)
+                                }}
+                            >
+                                <AlertTriangle size={14} />
+                            </button>
+                        )}
+                    </div>
                 )}
             </div>
 
-            {/* File/Folder Icon */}
-            <FileIcon
-                filename={node.name}
-                isDirectory={isDirectory}
-                isExpanded={isExpanded}
-                size={16}
-            />
+            {isError && isErrorDetailsOpen && (
+                <div
+                    className="pl-10 pr-3 py-2 text-xs text-slate-200 bg-slate-900/60 border-b border-slate-800/40"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-red-300 break-words">
+                        {fileSyncStatus?.errorMessage ?? 'Unknown error'}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                        <button
+                            type="button"
+                            className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                onRetryFile?.(node.path)
+                            }}
+                        >
+                            Retry
+                        </button>
+                        <button
+                            type="button"
+                            className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setIsErrorDetailsOpen(false)
+                            }}
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            )}
 
-            {/* Name */}
-            <span className="truncate">{node.name}</span>
+            {isDirectory && isExpanded && node.children && (
+                <div role="group" className="pl-3">
+                    <FileTreeItemList
+                        nodes={node.children}
+                        depth={depth + 1}
+                        selectedPath={selectedPath}
+                        focusedPath={focusedPath}
+                        onSelect={onSelect}
+                        onToggle={onToggle}
+                        onContextMenu={onContextMenu}
+                        onRetryFile={onRetryFile}
+                    />
+                </div>
+            )}
         </div>
     );
 }
@@ -116,6 +192,7 @@ interface FileTreeItemListProps {
     onSelect: (node: import('./types').TreeNode) => void;
     onToggle: (node: import('./types').TreeNode) => void;
     onContextMenu: (event: React.MouseEvent, node: import('./types').TreeNode) => void;
+    onRetryFile?: (path: string) => void;
 }
 
 export function FileTreeItemList({
@@ -126,6 +203,7 @@ export function FileTreeItemList({
     onSelect,
     onToggle,
     onContextMenu,
+    onRetryFile,
 }: FileTreeItemListProps): React.JSX.Element {
     // Sort: folders first, then files, both alphabetically
     const sortedNodes = [...nodes].sort((a, b) => {
@@ -136,32 +214,20 @@ export function FileTreeItemList({
     });
 
     return (
-        <div role="group">
+        <>
             {sortedNodes.map((node) => (
-                <div key={node.path}>
-                    <FileTreeItem
-                        node={node}
-                        depth={depth}
-                        selectedPath={selectedPath}
-                        focusedPath={focusedPath}
-                        onSelect={onSelect}
-                        onToggle={onToggle}
-                        onContextMenu={onContextMenu}
-                    />
-                    {/* Render children if expanded */}
-                    {node.type === 'directory' && node.expanded && node.children && (
-                        <FileTreeItemList
-                            nodes={node.children}
-                            depth={depth + 1}
-                            selectedPath={selectedPath}
-                            focusedPath={focusedPath}
-                            onSelect={onSelect}
-                            onToggle={onToggle}
-                            onContextMenu={onContextMenu}
-                        />
-                    )}
-                </div>
+                <FileTreeItem
+                    key={node.path}
+                    node={node}
+                    depth={depth}
+                    selectedPath={selectedPath}
+                    focusedPath={focusedPath}
+                    onSelect={onSelect}
+                    onToggle={onToggle}
+                    onContextMenu={onContextMenu}
+                    onRetryFile={onRetryFile}
+                />
             ))}
-        </div>
+        </>
     );
 }
