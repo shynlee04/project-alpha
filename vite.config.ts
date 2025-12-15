@@ -7,6 +7,8 @@ import viteTsConfigPaths from 'vite-tsconfig-paths'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
 
+const devtoolsEventBusPort = Number(process.env.TANSTACK_DEVTOOLS_EVENT_BUS_PORT ?? 42071)
+
 /**
  * Cross-Origin Isolation Plugin
  * Required for WebContainers (SharedArrayBuffer needs COOP/COEP headers)
@@ -27,7 +29,7 @@ const crossOriginIsolationPlugin: Plugin = {
 const config = defineConfig({
   plugins: [
     crossOriginIsolationPlugin, // Must be first for cross-origin isolation
-    devtools({ eventBusConfig: { port: 42070 } }),
+    devtools({ eventBusConfig: { port: devtoolsEventBusPort } }),
     nitro(),
     // this is the plugin that enables path aliases
     viteTsConfigPaths({

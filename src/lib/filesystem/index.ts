@@ -36,7 +36,8 @@ export { FileSystemError, PermissionDeniedError } from './fs-errors';
 export type { DirectoryEntry, FileReadResult, FileReadBinaryResult } from './fs-types';
 
 // Path utilities
-export { validatePath, parsePathSegments } from './path-utils';
+export { validatePath, isTraversalAttempt } from './path-guard';
+export { parsePathSegments } from './path-utils';
 
 // LocalFSAdapter exports (also re-exports types and errors for convenience)
 export { LocalFSAdapter, localFS } from './local-fs-adapter';

@@ -1,7 +1,8 @@
 # AGENTS.md
 
 This file provides guidance to agents when working with code in this repository.
-
+## ignore admin route completely
+this is a 100% client-side project, so ignore the admin route completely
 ## Build/Test Commands
 
 - `pnpm dev` - Starts dev server on port 3000 with cross-origin isolation headers required for WebContainers

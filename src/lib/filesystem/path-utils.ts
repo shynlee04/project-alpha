@@ -19,7 +19,7 @@
  * ```
  */
 
-import { FileSystemError } from './fs-errors';
+import { validatePath as validatePathInternal } from './path-guard';
 
 /**
  * Validates a file/directory path to prevent security issues.
@@ -48,59 +48,7 @@ import { FileSystemError } from './fs-errors';
  * ```
  */
 export function validatePath(path: string, operation: string): void {
-    if (!path || typeof path !== 'string') {
-        throw new FileSystemError(
-            `Path must be a non-empty string for ${operation}`,
-            'INVALID_PATH'
-        );
-    }
-
-    // Check for empty string after trimming
-    const trimmed = path.trim();
-    if (trimmed.length === 0) {
-        throw new FileSystemError(
-            `Path cannot be empty for ${operation}`,
-            'INVALID_PATH'
-        );
-    }
-
-    // Normalize path separators for analysis
-    const normalized = path.replace(/\\/g, '/');
-
-    // Check for absolute paths BEFORE splitting
-    // Unix absolute path starts with '/'
-    if (normalized.startsWith('/')) {
-        throw new FileSystemError(
-            `Invalid path for ${operation}. Use relative paths, not absolute paths.`,
-            'ABSOLUTE_PATH'
-        );
-    }
-
-    // Windows absolute path like 'C:\' or 'C:/'
-    if (normalized.length > 1 && normalized[1] === ':') {
-        throw new FileSystemError(
-            `Invalid path for ${operation}. Use relative paths, not absolute paths.`,
-            'ABSOLUTE_PATH'
-        );
-    }
-
-    // Split into segments to check for path traversal
-    const segments = normalized.split('/').filter(s => s.length > 0);
-
-    // Check for path traversal: '..' can only appear as a standalone segment,
-    // not as part of a filename (e.g., 'file..txt' is OK, but '../file' or './..' is not)
-    for (let i = 0; i < segments.length; i++) {
-        const segment = segments[i];
-
-        // Check for path traversal patterns
-        if (segment === '..') {
-            // '..' at the start or after another separator is path traversal
-            throw new FileSystemError(
-                `Invalid path for ${operation}. Path traversal (../) is not allowed.`,
-                'PATH_TRAVERSAL'
-            );
-        }
-    }
+    validatePathInternal(path, operation);
 }
 
 /**

@@ -34,7 +34,8 @@ export type { DirectoryEntry, FileReadResult, FileReadBinaryResult } from './fs-
 
 import { FileSystemError, PermissionDeniedError } from './fs-errors';
 import type { DirectoryEntry, FileReadResult, FileReadBinaryResult } from './fs-types';
-import { validatePath, parsePathSegments } from './path-utils';
+import { validatePath } from './path-guard';
+import { parsePathSegments } from './path-utils';
 
 /**
  * Local File System Access Adapter
@@ -81,7 +82,7 @@ export class LocalFSAdapter {
    * ```
    */
   static isSupported(): boolean {
-    return 'showDirectoryPicker' in window;
+    return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
   }
 
   /**
