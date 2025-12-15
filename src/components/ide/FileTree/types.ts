@@ -54,6 +54,8 @@ export interface FileTreeItemProps {
     onToggle: (node: TreeNode) => void;
     onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
     onRetryFile?: (path: string) => void;
+    /** Whether this file/folder is excluded from sync */
+    isExcluded?: boolean;
 }
 
 /**

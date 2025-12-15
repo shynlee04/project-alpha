@@ -41,20 +41,17 @@ export { validatePath, parsePathSegments } from './path-utils';
 // LocalFSAdapter exports (also re-exports types and errors for convenience)
 export { LocalFSAdapter, localFS } from './local-fs-adapter';
 
-// SyncManager exports
+// Sync operations
+export { SyncManager, createSyncManager } from './sync-manager';
+export type { SyncConfig, SyncProgress, SyncResult, SyncStatus, SyncErrorCode } from './sync-types';
+export { SyncError, DEFAULT_SYNC_CONFIG, BINARY_EXTENSIONS } from './sync-types';
+export { isExcluded, isBinaryFile, readFileContent } from './sync-utils';
 export {
-    SyncManager,
-    createSyncManager,
-    SyncError,
-    type SyncConfig,
-    type SyncProgress,
-    type SyncResult,
-    type SyncStatus,
-} from './sync-manager';
-
-// Sync types and constants
-export {
-    DEFAULT_SYNC_CONFIG,
-    BINARY_EXTENSIONS,
-    type SyncErrorCode,
-} from './sync-types';
+    DEFAULT_EXCLUSION_PATTERNS,
+    EXTENDED_DEFAULT_PATTERNS,
+    isPathExcluded,
+    mergeExclusionPatterns,
+    validateExclusionPattern,
+    parsePatternInput,
+    formatPatternsForDisplay,
+} from './exclusion-config';

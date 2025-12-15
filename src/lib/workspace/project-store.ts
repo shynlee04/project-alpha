@@ -50,6 +50,8 @@ export interface ProjectMetadata {
     autoSync?: boolean;
     /** Optional layout state for IDE restoration */
     layoutState?: LayoutConfig;
+    /** Custom exclusion patterns for sync (glob syntax) */
+    exclusionPatterns?: string[];
 }
 
 /**

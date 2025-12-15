@@ -97,6 +97,7 @@ export function FileTree({
     syncNow,
     localAdapterRef,
     syncManagerRef,
+    exclusionPatterns,
   } = useWorkspace();
 
   // Sync counts for status display
@@ -277,6 +278,7 @@ export function FileTree({
           onToggle={handleToggle}
           onContextMenu={handleContextMenu}
           onRetryFile={handleRetryFile}
+          exclusionPatterns={exclusionPatterns}
         />
       </div>
 

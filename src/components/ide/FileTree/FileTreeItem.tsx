@@ -9,6 +9,7 @@ import { ChevronRight, ChevronDown, Loader2, Check, Clock, AlertTriangle } from 
 import { FileIcon } from './icons';
 import type { FileTreeItemProps } from './types';
 import { fileSyncStatusStore } from '../../../lib/workspace'
+import { isPathExcluded } from '../../../lib/filesystem/exclusion-config'
 
 /**
  * FileTreeItem - Renders a single file or folder in the tree
@@ -22,6 +23,7 @@ export function FileTreeItem({
     onToggle,
     onContextMenu,
     onRetryFile,
+    isExcluded = false,
 }: FileTreeItemProps): React.JSX.Element {
 
     const isSelected = selectedPath === node.path;
@@ -65,11 +67,13 @@ export function FileTreeItem({
             <div
                 className={`
         flex items-center gap-1 h-7 cursor-pointer select-none
-        text-sm text-slate-300 hover:bg-slate-800/50
+        text-sm hover:bg-slate-800/50
+        ${isExcluded ? 'text-slate-500 opacity-60' : 'text-slate-300'}
         ${isSelected ? 'bg-cyan-500/20 text-cyan-200' : ''}
         ${isFocused ? 'outline outline-1 outline-cyan-500/50 outline-offset-[-1px]' : ''}
         transition-colors duration-75
       `}
+                title={isExcluded ? 'Excluded from sync' : undefined}
             >
                 {/* Chevron for directories */}
                 <div className="w-4 h-4 flex items-center justify-center shrink-0">
@@ -193,6 +197,8 @@ interface FileTreeItemListProps {
     onToggle: (node: import('./types').TreeNode) => void;
     onContextMenu: (event: React.MouseEvent, node: import('./types').TreeNode) => void;
     onRetryFile?: (path: string) => void;
+    /** Exclusion patterns to check against */
+    exclusionPatterns?: string[];
 }
 
 export function FileTreeItemList({
@@ -204,6 +210,7 @@ export function FileTreeItemList({
     onToggle,
     onContextMenu,
     onRetryFile,
+    exclusionPatterns = [],
 }: FileTreeItemListProps): React.JSX.Element {
     // Sort: folders first, then files, both alphabetically
     const sortedNodes = [...nodes].sort((a, b) => {
@@ -226,6 +233,7 @@ export function FileTreeItemList({
                     onToggle={onToggle}
                     onContextMenu={onContextMenu}
                     onRetryFile={onRetryFile}
+                    isExcluded={exclusionPatterns.length > 0 && isPathExcluded(node.path, exclusionPatterns)}
                 />
             ))}
         </>

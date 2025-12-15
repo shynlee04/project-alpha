@@ -5,6 +5,7 @@
 import { useState, useRef } from 'react';
 import type { ProjectMetadata } from '../project-store';
 import type { LocalFSAdapter, SyncManager, SyncProgress } from '../../filesystem';
+import { EXTENDED_DEFAULT_PATTERNS } from '../../filesystem/exclusion-config';
 import type { FsaPermissionState } from '../../filesystem/permission-lifecycle';
 import { createWorkspaceEventBus, type WorkspaceEventEmitter } from '../../events';
 import type { SyncStatus } from '../workspace-types';
@@ -24,6 +25,9 @@ export function useWorkspaceState(initialProject: ProjectMetadata | null = null)
     const [syncError, setSyncError] = useState<string | null>(null);
     const [autoSync, setAutoSyncState] = useState<boolean>(initialProject?.autoSync ?? true);
     const [isOpeningFolder, setIsOpeningFolder] = useState(false);
+    const [exclusionPatterns, setExclusionPatterns] = useState<string[]>(
+        initialProject?.exclusionPatterns ?? [...EXTENDED_DEFAULT_PATTERNS]
+    );
 
     // Refs for adapters
     const localAdapterRef = useRef<LocalFSAdapter | null>(null);
@@ -42,6 +46,7 @@ export function useWorkspaceState(initialProject: ProjectMetadata | null = null)
             syncError,
             autoSync,
             isOpeningFolder,
+            exclusionPatterns,
         },
         setters: {
             setProjectMetadata,
@@ -53,6 +58,7 @@ export function useWorkspaceState(initialProject: ProjectMetadata | null = null)
             setSyncError,
             setAutoSyncState,
             setIsOpeningFolder,
+            setExclusionPatterns,
         },
         refs: {
             localAdapterRef,

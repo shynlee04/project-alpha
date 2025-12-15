@@ -32,7 +32,7 @@ export function useWorkspaceActions(
     const {
         projectMetadata,
         directoryHandle,
-        autoSync
+        autoSync,
     } = state;
 
     const {
@@ -40,7 +40,8 @@ export function useWorkspaceActions(
         setDirectoryHandle,
         setPermissionState,
         setAutoSyncState,
-        setIsOpeningFolder
+        setIsOpeningFolder,
+        setExclusionPatterns: setExclusionPatternsState,
     } = setters;
 
     const {
@@ -182,6 +183,31 @@ export function useWorkspaceActions(
         [projectMetadata, setAutoSyncState, setProjectMetadata]
     );
 
+    const setExclusionPatterns = useCallback(
+        async (patterns: string[]): Promise<void> => {
+            setExclusionPatternsState(patterns);
+
+            // Update SyncManager if available
+            if (syncManagerRef.current) {
+                syncManagerRef.current.setExcludePatterns(patterns);
+            }
+
+            // Persist to ProjectStore
+            if (!projectMetadata) return;
+
+            const updatedProject: ProjectMetadata = {
+                ...projectMetadata,
+                exclusionPatterns: patterns,
+            };
+
+            const saved = await saveProject(updatedProject);
+            if (saved) {
+                setProjectMetadata(updatedProject);
+            }
+        },
+        [projectMetadata, syncManagerRef, setExclusionPatternsState, setProjectMetadata]
+    );
+
     const closeProject = useCallback((): void => {
         // Clear refs
         localAdapterRef.current = null;
@@ -195,6 +221,7 @@ export function useWorkspaceActions(
         openFolder,
         switchFolder,
         setAutoSync,
+        setExclusionPatterns,
         closeProject
     };
 }

@@ -30,6 +30,8 @@ export interface WorkspaceState {
     autoSync: boolean;
     /** Whether folder is currently being opened */
     isOpeningFolder: boolean;
+    /** Current exclusion patterns (default + custom) */
+    exclusionPatterns: string[];
 }
 
 export interface WorkspaceActions {
@@ -40,6 +42,8 @@ export interface WorkspaceActions {
     /** Trigger manual sync from LocalFS to WebContainer */
     syncNow(): Promise<void>;
     setAutoSync(enabled: boolean): Promise<void>;
+    /** Update exclusion patterns and persist to ProjectStore */
+    setExclusionPatterns(patterns: string[]): Promise<void>;
     /** Clear state and navigate to dashboard */
     closeProject(): void;
 }
