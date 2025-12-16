@@ -47,6 +47,8 @@ export { SyncManager, createSyncManager } from './sync-manager';
 export type { SyncConfig, SyncProgress, SyncResult, SyncStatus, SyncErrorCode } from './sync-types';
 export { SyncError, DEFAULT_SYNC_CONFIG, BINARY_EXTENSIONS } from './sync-types';
 export { isExcluded, isBinaryFile, readFileContent } from './sync-utils';
+export type { WalkDirectoryEntry } from './directory-walker';
+export { walkDirectory, walkDirectorySegments } from './directory-walker';
 export {
     DEFAULT_EXCLUSION_PATTERNS,
     EXTENDED_DEFAULT_PATTERNS,

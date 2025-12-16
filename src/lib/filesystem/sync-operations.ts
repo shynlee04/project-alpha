@@ -6,7 +6,7 @@
  */
 
 import type { FileSystemTree } from '@webcontainer/api';
-import type { LocalFSAdapter, DirectoryEntry } from './local-fs-adapter';
+import type { LocalFSAdapter } from './local-fs-adapter';
 import type { WorkspaceEventEmitter } from '../events';
 import {
     SyncError,
@@ -14,6 +14,7 @@ import {
     type SyncConfig,
 } from './sync-types';
 import { isExcluded, readFileContent } from './sync-utils';
+import { walkDirectory } from './directory-walker';
 
 interface ProcessedRef {
     filesProcessed: number;
@@ -34,9 +35,20 @@ export async function countFilesToSync(
     excludePatterns: string[],
     onError?: (error: SyncError) => void
 ): Promise<number> {
-    let entries: DirectoryEntry[];
+    let count = 0;
+
     try {
-        entries = await adapter.listDirectory(path);
+        for await (const entry of walkDirectory(adapter, path, { recursive: false })) {
+            if (isExcluded(entry.path, entry.name, excludePatterns)) {
+                continue;
+            }
+
+            if (entry.type === 'directory') {
+                count += await countFilesToSync(adapter, entry.path, excludePatterns, onError);
+            } else {
+                count += 1;
+            }
+        }
     } catch (error) {
         const syncError = new SyncError(
             `Failed to list directory: ${path || '/'}`,
@@ -46,22 +58,6 @@ export async function countFilesToSync(
         );
         onError?.(syncError);
         throw syncError;
-    }
-
-    let count = 0;
-
-    for (const entry of entries) {
-        const entryPath = path ? `${path}/${entry.name}` : entry.name;
-
-        if (isExcluded(entryPath, entry.name, excludePatterns)) {
-            continue;
-        }
-
-        if (entry.type === 'directory') {
-            count += await countFilesToSync(adapter, entryPath, excludePatterns, onError);
-        } else {
-            count += 1;
-        }
     }
 
     return count;
@@ -91,22 +87,32 @@ export async function buildFileSystemTree(
     const { adapter, config, eventBus } = context;
     const tree: FileSystemTree = {};
 
-    let entries: DirectoryEntry[];
+    let walkerFailed = false;
+    let walkerError: unknown;
+    let entries: Array<{ name: string; type: 'file' | 'directory'; path: string }> = [];
+
     try {
-        entries = await adapter.listDirectory(path);
+        for await (const entry of walkDirectory(adapter, path, { recursive: false })) {
+            entries.push({ name: entry.name, type: entry.type, path: entry.path });
+        }
     } catch (error) {
+        walkerFailed = true;
+        walkerError = error;
+    }
+
+    if (walkerFailed) {
         const syncError = new SyncError(
             `Failed to list directory: ${path || '/'}`,
             'FILE_READ_FAILED',
             path || '/',
-            error
+            walkerError
         );
         config.onError?.(syncError);
         throw syncError;
     }
 
     for (const entry of entries) {
-        const entryPath = path ? `${path}/${entry.name}` : entry.name;
+        const entryPath = entry.path;
 
         // Check exclusion patterns
         if (isExcluded(entryPath, entry.name, config.excludePatterns)) {
